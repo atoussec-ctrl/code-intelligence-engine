@@ -1,16 +1,34 @@
 package com.rag.rag.application.rag;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.rag.rag.application.port.out.EmbeddingGeneratorPort;
+import com.rag.rag.application.port.out.VectorSearchPort;
+import com.rag.rag.domain.embedding.EmbeddingVector;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.Test;
 
-import com.rag.rag.application.port.out.VectorSearchPort;
-
 class RetrieveContextUseCaseTest {
+    @Test
+    void shouldGenerateQueryEmbeddingAndSearchByWorkspace() {
+        UUID workspaceId = UUID.randomUUID();
+        EmbeddingVector queryEmbedding = EmbeddingVector.of(List.of(0.1, 0.2, 0.3), "test-model");
+        FakeEmbeddingGeneratorPort embeddings = new FakeEmbeddingGeneratorPort(List.of(queryEmbedding));
+        FakeVectorSearchPort vectorSearch = new FakeVectorSearchPort(List.of(context(workspaceId, 0.91)));
+        RetrieveContextUseCase useCase = new RetrieveContextUseCase(embeddings, vectorSearch);
+
+        List<RetrievedContext> results = useCase.execute(new RetrievalQuery(workspaceId, "architecture", 5));
+
+        assertThat(results).hasSize(1);
+        assertThat(embeddings.lastTexts()).containsExactly("architecture");
+        assertThat(vectorSearch.lastQuery().workspaceId()).isEqualTo(workspaceId);
+        assertThat(vectorSearch.lastQuery().embedding()).isEqualTo(queryEmbedding);
+        assertThat(vectorSearch.lastQuery().topK()).isEqualTo(5);
+    }
+
     @Test
     void shouldNeverReturnChunksFromAnotherWorkspace() {
         UUID workspaceA = UUID.randomUUID();
@@ -20,7 +38,7 @@ class RetrieveContextUseCaseTest {
                 context(workspaceB, 0.99),
                 context(workspaceA, 0.87)
         ));
-        RetrieveContextUseCase useCase = new RetrieveContextUseCase(vectorSearch);
+        RetrieveContextUseCase useCase = new RetrieveContextUseCase(defaultEmbeddings(), vectorSearch);
 
         List<RetrievedContext> results = useCase.execute(new RetrievalQuery(workspaceA, "architecture", 5));
 
@@ -37,12 +55,11 @@ class RetrieveContextUseCaseTest {
                 context(workspaceId, 0.95),
                 context(workspaceId, 0.70)
         ));
-        RetrieveContextUseCase useCase = new RetrieveContextUseCase(vectorSearch);
+        RetrieveContextUseCase useCase = new RetrieveContextUseCase(defaultEmbeddings(), vectorSearch);
 
         List<RetrievedContext> results = useCase.execute(new RetrievalQuery(workspaceId, "architecture", 2));
 
         assertThat(results).extracting((RetrievedContext result) -> result.score()).containsExactly(0.95, 0.70);
-
         assertThat(vectorSearch.lastQuery().topK()).isEqualTo(2);
     }
 
@@ -59,9 +76,20 @@ class RetrieveContextUseCaseTest {
     }
 
     @Test
+    void shouldRejectUnexpectedQueryEmbeddingCount() {
+        RetrieveContextUseCase useCase = new RetrieveContextUseCase(
+                new FakeEmbeddingGeneratorPort(List.of()),
+                new FakeVectorSearchPort(List.of()));
+
+        assertThatThrownBy(() -> useCase.execute(new RetrievalQuery(UUID.randomUUID(), "architecture", 5)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("query embedding must contain exactly one vector");
+    }
+
+    @Test
     void shouldReturnImmutableResultList() {
         UUID workspaceId = UUID.randomUUID();
-        RetrieveContextUseCase useCase = new RetrieveContextUseCase(new FakeVectorSearchPort(List.of(context(workspaceId, 0.91))));
+        RetrieveContextUseCase useCase = new RetrieveContextUseCase(defaultEmbeddings(), new FakeVectorSearchPort(List.of(context(workspaceId, 0.91))));
 
         List<RetrievedContext> results = useCase.execute(new RetrievalQuery(workspaceId, "architecture", 5));
 
@@ -80,21 +108,44 @@ class RetrieveContextUseCaseTest {
         );
     }
 
+    private static FakeEmbeddingGeneratorPort defaultEmbeddings() {
+        return new FakeEmbeddingGeneratorPort(List.of(EmbeddingVector.of(List.of(0.1, 0.2, 0.3), "test-model")));
+    }
+
+    private static class FakeEmbeddingGeneratorPort implements EmbeddingGeneratorPort {
+        private final List<EmbeddingVector> embeddings;
+        private List<String> lastTexts = List.of();
+
+        FakeEmbeddingGeneratorPort(List<EmbeddingVector> embeddings) {
+            this.embeddings = List.copyOf(embeddings);
+        }
+
+        @Override
+        public List<EmbeddingVector> generateBatch(List<String> texts) {
+            lastTexts = List.copyOf(texts);
+            return embeddings;
+        }
+
+        List<String> lastTexts() {
+            return lastTexts;
+        }
+    }
+
     private static class FakeVectorSearchPort implements VectorSearchPort {
         private final List<RetrievedContext> results;
-        private RetrievalQuery lastQuery;
+        private VectorSearchQuery lastQuery;
 
         FakeVectorSearchPort(List<RetrievedContext> results) {
             this.results = new ArrayList<>(results);
         }
 
         @Override
-        public List<RetrievedContext> search(RetrievalQuery query) {
+        public List<RetrievedContext> search(VectorSearchQuery query) {
             lastQuery = query;
             return results;
         }
 
-        RetrievalQuery lastQuery() {
+        VectorSearchQuery lastQuery() {
             return lastQuery;
         }
     }

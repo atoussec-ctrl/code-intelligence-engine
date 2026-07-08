@@ -37,4 +37,17 @@ class EmbeddingVectorTest {
 		assertEquals("embedding model is required", thrown.getMessage());
 	}
 
+	@Test
+	void rejectsNonFiniteValues() {
+		var nan = assertThrows(
+			IllegalArgumentException.class,
+			() -> EmbeddingVector.of(List.of(0.1, Double.NaN), "test-embedding-model"));
+		var infinity = assertThrows(
+			IllegalArgumentException.class,
+			() -> EmbeddingVector.of(List.of(Double.POSITIVE_INFINITY), "test-embedding-model"));
+
+		assertEquals("embedding values must be finite", nan.getMessage());
+		assertEquals("embedding values must be finite", infinity.getMessage());
+	}
+
 }

@@ -1,9 +1,9 @@
 package com.rag.rag.application.port.out;
 
-import com.rag.rag.application.rag.RetrievalQuery;
 import com.rag.rag.application.rag.RetrievedContext;
+import com.rag.rag.application.rag.VectorSearchQuery;
 import java.util.List;
 
 public interface VectorSearchPort {
-    List<RetrievedContext> search(RetrievalQuery query);
+    List<RetrievedContext> search(VectorSearchQuery query);
 }

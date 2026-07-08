@@ -3,6 +3,7 @@ package com.rag.rag.application.rag;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.rag.rag.domain.embedding.EmbeddingVector;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -85,6 +86,19 @@ class RagValueObjectsTest {
 			IllegalArgumentException.class,
 			() -> new RetrievedContext(workspaceId, chunkId, documentId, "Source", "Content", Double.NaN));
 		assertEquals("score must be finite", thrown.getMessage());
+	}
+
+	@Test
+	void rejectsInvalidVectorSearchQuery() {
+		var workspaceId = UUID.randomUUID();
+		var embedding = EmbeddingVector.of(List.of(0.1), "test-model");
+
+		assertThrows(NullPointerException.class, () -> new VectorSearchQuery(null, embedding, 3));
+		assertThrows(NullPointerException.class, () -> new VectorSearchQuery(workspaceId, null, 3));
+		var thrown = assertThrows(
+			IllegalArgumentException.class,
+			() -> new VectorSearchQuery(workspaceId, embedding, 0));
+		assertEquals("topK must be positive", thrown.getMessage());
 	}
 
 	private static RagCitation citation() {

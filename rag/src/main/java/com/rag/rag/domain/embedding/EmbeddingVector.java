@@ -8,6 +8,9 @@ public record EmbeddingVector(List<Double> values, String model) {
 		if (values == null || values.isEmpty()) {
 			throw new IllegalArgumentException("embedding values are required");
 		}
+		if (values.stream().anyMatch(value -> value == null || !Double.isFinite(value))) {
+			throw new IllegalArgumentException("embedding values must be finite");
+		}
 		if (model == null || model.isBlank()) {
 			throw new IllegalArgumentException("embedding model is required");
 		}
