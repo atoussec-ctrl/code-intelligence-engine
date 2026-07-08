@@ -2,7 +2,6 @@ package com.rag.rag.application.rag;
 
 import com.rag.rag.application.port.out.EmbeddingGeneratorPort;
 import com.rag.rag.application.port.out.VectorSearchPort;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -25,7 +24,7 @@ public class RetrieveContextUseCase {
         var vectorQuery = new VectorSearchQuery(query.workspaceId(), queryEmbeddings.getFirst(), query.topK());
         return vectorSearch.search(vectorQuery).stream()
                 .filter(context -> query.workspaceId().equals(context.workspaceId()))
-                .sorted(Comparator.comparingDouble(RetrievedContext::score).reversed())
+                .sorted((left, right) -> Double.compare(right.score(), left.score()))
                 .limit(query.topK())
                 .toList();
     }

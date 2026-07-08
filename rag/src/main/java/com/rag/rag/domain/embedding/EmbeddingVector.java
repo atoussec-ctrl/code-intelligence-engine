@@ -2,6 +2,8 @@ package com.rag.rag.domain.embedding;
 
 import java.util.List;
 
+// Embedding dimensions are ordered; List is part of the domain contract.
+@SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
 public record EmbeddingVector(List<Double> values, String model) {
 
 	public EmbeddingVector {
