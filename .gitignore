@@ -1,0 +1,24 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Build outputs
+**/target/
+**/build/
+**/dist/
+**/coverage/
+**/node_modules/
+
+# Local IDE/agent state
+.vscode/
+.idea/
+.agents/
+.codex/
+
+# Deferred modules - do not commit yet
+ai/
+rag-training/
