@@ -80,4 +80,24 @@ class DocumentTest {
 		assertEquals("architecture", document.metadata().get("tag"));
 	}
 
+	@Test
+	void rejectsAllDocumentMetadataMutationOperations() {
+		var document = Document.create(
+			UUID.randomUUID(),
+			"Architecture Notes",
+			DocumentSource.text(),
+			"checksum-123",
+			Map.of("tag", "architecture"));
+
+		assertEquals(
+			"Document metadata is immutable",
+			assertThrows(UnsupportedOperationException.class, () -> document.metadata().putAll(Map.of("tag", "changed"))).getMessage());
+		assertEquals(
+			"Document metadata is immutable",
+			assertThrows(UnsupportedOperationException.class, () -> document.metadata().remove("tag")).getMessage());
+		assertEquals(
+			"Document metadata is immutable",
+			assertThrows(UnsupportedOperationException.class, () -> document.metadata().clear()).getMessage());
+	}
+
 }
