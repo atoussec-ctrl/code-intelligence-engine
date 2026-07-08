@@ -50,7 +50,7 @@ public class PgVectorSearchAdapter implements VectorSearchPort {
                 query.topK());
     }
 
-    private RetrievedContext mapRow(ResultSet resultSet, int rowNumber) throws SQLException {
+    private RetrievedContext mapRow(ResultSet resultSet, @SuppressWarnings("unused") int rowNumber) throws SQLException {
         return new RetrievedContext(
                 resultSet.getObject("workspace_id", java.util.UUID.class),
                 resultSet.getObject("chunk_id", java.util.UUID.class),
