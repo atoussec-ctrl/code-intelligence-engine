@@ -1,8 +1,9 @@
-name: rag-engine-java
+name: distributed-ai-rag
 
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    container_name: rag-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-rag}
       POSTGRES_USER: ${POSTGRES_USER:-rag}
@@ -14,9 +15,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
+    container_name: rag-redis
     ports:
       - "${REDIS_PORT:-6379}:6379"
     healthcheck:
@@ -27,6 +31,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management
+    container_name: rag-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-rag}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-rag}
@@ -41,6 +46,7 @@ services:
 
   otel-lgtm:
     image: grafana/otel-lgtm:0.11.6
+    container_name: rag-otel-lgtm
     ports:
       - "${GRAFANA_PORT:-3001}:3000"
       - "${OTEL_GRPC_PORT:-4317}:4317"
@@ -53,7 +59,14 @@ services:
 
   ollama:
     image: ollama/ollama:0.9.6
+    container_name: rag-ollama
     profiles:
       - local-llm
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  postgres_data:
+  ollama_data:
