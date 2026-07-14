@@ -3,12 +3,10 @@ package com.rag.rag.adapter.out.persistence;
 import com.rag.rag.application.port.out.VectorSearchPort;
 import com.rag.rag.application.rag.RetrievedContext;
 import com.rag.rag.application.rag.VectorSearchQuery;
-import com.rag.rag.domain.embedding.EmbeddingVector;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -40,7 +38,7 @@ public class PgVectorSearchAdapter implements VectorSearchPort {
     @Override
     public List<RetrievedContext> search(VectorSearchQuery query) {
         Objects.requireNonNull(query, "query is required");
-        String vectorLiteral = toPgVectorLiteral(query.embedding());
+        String vectorLiteral = PgVectorLiteral.from(query.embedding());
         return jdbcTemplate.query(
                 SEARCH_SQL,
                 this::mapRow,
@@ -58,18 +56,5 @@ public class PgVectorSearchAdapter implements VectorSearchPort {
                 resultSet.getString("source_title"),
                 resultSet.getString("content"),
                 resultSet.getDouble("score"));
-    }
-
-    private static String toPgVectorLiteral(EmbeddingVector embedding) {
-        return embedding.values().stream()
-                .map(PgVectorSearchAdapter::formatVectorValue)
-                .collect(Collectors.joining(",", "[", "]"));
-    }
-
-    private static String formatVectorValue(Double value) {
-        if (value == null || !Double.isFinite(value)) {
-            throw new IllegalArgumentException("embedding values must be finite");
-        }
-        return value.toString();
     }
 }

@@ -46,6 +46,24 @@ public final class Document {
 			metadata);
 	}
 
+	public static Document restore(
+		UUID id,
+		UUID workspaceId,
+		String title,
+		DocumentSource source,
+		String checksum,
+		DocumentStatus status,
+		Map<String, String> metadata) {
+		return new Document(
+			id,
+			workspaceId,
+			title,
+			source,
+			checksum,
+			status,
+			metadata);
+	}
+
 	public UUID id() {
 		return id;
 	}

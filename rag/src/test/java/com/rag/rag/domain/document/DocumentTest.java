@@ -33,6 +33,30 @@ class DocumentTest {
 	}
 
 	@Test
+	void restoresPersistedDocumentState() {
+		var documentId = UUID.randomUUID();
+		var workspaceId = UUID.randomUUID();
+
+		var document = Document.restore(
+			documentId,
+			workspaceId,
+			"Architecture Notes",
+			DocumentSource.url(" https://example.com/docs "),
+			"checksum-123",
+			DocumentStatus.READY,
+			Map.of("tag", "architecture"));
+
+		assertEquals(documentId, document.id());
+		assertEquals(workspaceId, document.workspaceId());
+		assertEquals("Architecture Notes", document.title());
+		assertEquals(DocumentSourceType.URL, document.source().type());
+		assertEquals("https://example.com/docs", document.source().uri());
+		assertEquals("checksum-123", document.checksum());
+		assertEquals(DocumentStatus.READY, document.status());
+		assertEquals("architecture", document.metadata().get("tag"));
+	}
+
+	@Test
 	void rejectsDocumentWithoutWorkspace() {
 		var thrown = assertThrows(
 			IllegalArgumentException.class,

@@ -8,43 +8,15 @@ import com.rag.rag.application.rag.VectorSearchQuery;
 import com.rag.rag.domain.embedding.EmbeddingVector;
 import java.util.List;
 import java.util.UUID;
-import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
-@Testcontainers(disabledWithoutDocker = true)
-class PgVectorSearchAdapterIntegrationTest {
+class PgVectorSearchAdapterIntegrationTest extends PgVectorIntegrationTestSupport {
 
-    private static final DockerImageName PGVECTOR_IMAGE =
-            DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres");
-
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer(PGVECTOR_IMAGE);
-
-    private JdbcTemplate jdbcTemplate;
     private PgVectorSearchAdapter adapter;
-
-    @BeforeAll
-    static void migrateSchema() {
-        Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-                .locations("classpath:db/migration")
-                .load()
-                .migrate();
-    }
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate = new JdbcTemplate(dataSource());
-        jdbcTemplate.execute("TRUNCATE TABLE chunk_embeddings, chunks, documents CASCADE");
         adapter = new PgVectorSearchAdapter(jdbcTemplate);
     }
 
@@ -69,15 +41,6 @@ class PgVectorSearchAdapterIntegrationTest {
                 .containsExactly("Architecture Notes", "Messaging Notes");
         assertThat(results.getFirst().score()).isCloseTo(1.0, offset(0.0001));
         assertThat(results.getFirst().score()).isGreaterThan(results.getLast().score());
-    }
-
-    private static DriverManagerDataSource dataSource() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource();
-        dataSource.setDriverClassName("org.postgresql.Driver");
-        dataSource.setUrl(POSTGRES.getJdbcUrl());
-        dataSource.setUsername(POSTGRES.getUsername());
-        dataSource.setPassword(POSTGRES.getPassword());
-        return dataSource;
     }
 
     private void insertKnowledge(UUID workspaceId, String title, String content, String embedding) {
