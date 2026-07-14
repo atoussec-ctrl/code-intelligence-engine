@@ -4,22 +4,26 @@ import com.rag.rag.application.port.out.ChunkEmbeddingRepositoryPort;
 import com.rag.rag.application.port.out.DocumentRepositoryPort;
 import com.rag.rag.application.port.out.EmbeddingGeneratorPort;
 import com.rag.rag.application.service.ChunkingService;
+import com.rag.rag.application.service.PromptInjectionScanner;
 import com.rag.rag.domain.embedding.ChunkEmbedding;
 
 public class ProcessDocumentUseCase {
 
 	private final DocumentRepositoryPort documents;
 	private final ChunkingService chunkingService;
+	private final PromptInjectionScanner promptInjectionScanner;
 	private final EmbeddingGeneratorPort embeddings;
 	private final ChunkEmbeddingRepositoryPort chunkEmbeddings;
 
 	public ProcessDocumentUseCase(
 		DocumentRepositoryPort documents,
 		ChunkingService chunkingService,
+		PromptInjectionScanner promptInjectionScanner,
 		EmbeddingGeneratorPort embeddings,
 		ChunkEmbeddingRepositoryPort chunkEmbeddings) {
 		this.documents = documents;
 		this.chunkingService = chunkingService;
+		this.promptInjectionScanner = promptInjectionScanner;
 		this.embeddings = embeddings;
 		this.chunkEmbeddings = chunkEmbeddings;
 	}
@@ -36,7 +40,9 @@ public class ProcessDocumentUseCase {
 				document.id(),
 				command.content(),
 				command.maxTokens(),
-				document.metadata());
+				document.metadata()).stream()
+				.map(chunk -> chunk.withMetadata(promptInjectionScanner.scan(chunk.content())))
+				.toList();
 			var vectors = embeddings.generateBatch(chunks.stream().map(chunk -> chunk.content()).toList());
 
 			if (vectors.size() != chunks.size()) {

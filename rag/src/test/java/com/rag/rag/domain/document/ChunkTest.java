@@ -33,7 +33,7 @@ class ChunkTest {
 
 	@Test
 	void rejectsBlankChunkContent() {
-		var thrown =assertThrows(IllegalArgumentException.class, () -> Chunk.create(
+		var thrown = assertThrows(IllegalArgumentException.class, () -> Chunk.create(
 			UUID.randomUUID(),
 			UUID.randomUUID(),
 			0,
@@ -42,7 +42,6 @@ class ChunkTest {
 			Map.of()));
 		assertEquals("chunk content is required", thrown.getMessage());
 	}
-	
 
 	@Test
 	void rejectsNonPositiveTokenCount() {
@@ -68,6 +67,28 @@ class ChunkTest {
 
 		var thrown = assertThrows(UnsupportedOperationException.class, () -> chunk.metadata().put("section", "changed"));
 		assertEquals("Chunk metadata is immutable", thrown.getMessage());
+	}
+
+	@Test
+	void annotatesChunkMetadataWithoutChangingIdentity() {
+		var chunk = Chunk.create(
+			UUID.randomUUID(),
+			UUID.randomUUID(),
+			0,
+			"content",
+			1,
+			Map.of("section", "architecture"));
+
+		var annotated = chunk.withMetadata(Map.of("security.injection_suspected", "true"));
+
+		assertEquals(chunk.id(), annotated.id());
+		assertEquals(chunk.workspaceId(), annotated.workspaceId());
+		assertEquals(chunk.documentId(), annotated.documentId());
+		assertEquals(chunk.chunkIndex(), annotated.chunkIndex());
+		assertEquals(chunk.content(), annotated.content());
+		assertEquals(chunk.tokenCount(), annotated.tokenCount());
+		assertEquals("architecture", annotated.metadata().get("section"));
+		assertEquals("true", annotated.metadata().get("security.injection_suspected"));
 	}
 
 }

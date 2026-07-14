@@ -1,5 +1,6 @@
 package com.rag.rag.domain.document;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -73,6 +74,21 @@ public final class Chunk {
 
 	public Map<String, String> metadata() {
 		return ImmutableMetadataMap.from(metadata, "Chunk metadata is immutable");
+	}
+
+	public Chunk withMetadata(Map<String, String> additionalMetadata) {
+		var mergedMetadata = new LinkedHashMap<>(metadata);
+		if (additionalMetadata != null) {
+			mergedMetadata.putAll(additionalMetadata);
+		}
+		return new Chunk(
+			id,
+			workspaceId,
+			documentId,
+			chunkIndex,
+			content,
+			tokenCount,
+			mergedMetadata);
 	}
 
 	private static int requireNonNegative(int value, String fieldName) {
