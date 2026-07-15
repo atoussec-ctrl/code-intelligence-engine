@@ -28,6 +28,9 @@ public class RagOutputValidator {
             if (!context.documentId().equals(citation.documentId())) {
                 errors.add("citation document does not match retrieved chunk");
             }
+            if (!context.sourceTitle().equals(citation.sourceTitle())) {
+                errors.add("citation source title does not match retrieved chunk");
+            }
         }
 
         if (attemptsSystemPromptLeakage(answer.answer())) {

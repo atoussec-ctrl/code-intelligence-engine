@@ -1,5 +1,7 @@
 package com.rag.rag.adapter.in.rest;
 
+import com.rag.rag.application.rag.InvalidRagAnswerException;
+import com.rag.rag.application.rag.RagAnswerGenerationException;
 import com.rag.rag.application.usecase.DocumentNotFoundException;
 import com.rag.rag.application.usecase.DocumentProcessingRequestNotFoundException;
 import com.rag.rag.application.usecase.DocumentProcessingRequestNotRetryableException;
@@ -41,6 +43,21 @@ class RestExceptionHandler {
 		DocumentProcessingRequestNotRetryableException exception) {
 		var problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
 		problem.setTitle("Document processing request is not retryable");
+		return problem;
+	}
+
+	@ExceptionHandler(InvalidRagAnswerException.class)
+	ProblemDetail handleInvalidRagAnswer(InvalidRagAnswerException exception) {
+		var problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, exception.getMessage());
+		problem.setTitle("Invalid AI response");
+		problem.setProperty("errors", exception.errors());
+		return problem;
+	}
+
+	@ExceptionHandler(RagAnswerGenerationException.class)
+	ProblemDetail handleRagAnswerGenerationFailure(RagAnswerGenerationException exception) {
+		var problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, exception.getMessage());
+		problem.setTitle("AI generation failed");
 		return problem;
 	}
 

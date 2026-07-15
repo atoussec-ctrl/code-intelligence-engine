@@ -48,6 +48,20 @@ class RagOutputValidatorTest {
     }
 
     @Test
+    void shouldRejectCitationWithInventedSourceTitle() {
+        RetrievedContext context = context();
+        RagAnswer answer = new RagAnswer(
+                "The architecture follows ports and adapters.",
+                List.of(new RagCitation(context.chunkId(), context.documentId(), "Invented Notes"))
+        );
+
+        RagOutputValidationResult result = validator.validate(answer, List.of(context));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).contains("citation source title does not match retrieved chunk");
+    }
+
+    @Test
     void shouldRejectSystemPromptLeakageAttempt() {
         RetrievedContext context = context();
         RagAnswer answer = new RagAnswer(

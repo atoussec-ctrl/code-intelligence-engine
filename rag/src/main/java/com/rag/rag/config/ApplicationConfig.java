@@ -1,10 +1,17 @@
 package com.rag.rag.config;
 
 import com.rag.rag.adapter.out.embedding.SpringAiEmbeddingGeneratorAdapter;
+import com.rag.rag.adapter.out.generation.SpringAiRagAnswerGeneratorAdapter;
 import com.rag.rag.application.port.out.ChunkEmbeddingRepositoryPort;
 import com.rag.rag.application.port.out.DocumentProcessingRequestPort;
 import com.rag.rag.application.port.out.DocumentRepositoryPort;
 import com.rag.rag.application.port.out.EmbeddingGeneratorPort;
+import com.rag.rag.application.port.out.RagAnswerGeneratorPort;
+import com.rag.rag.application.port.out.VectorSearchPort;
+import com.rag.rag.application.rag.AskQuestionUseCase;
+import com.rag.rag.application.rag.RagOutputValidator;
+import com.rag.rag.application.rag.RagPromptBuilder;
+import com.rag.rag.application.rag.RetrieveContextUseCase;
 import com.rag.rag.application.service.ChunkingService;
 import com.rag.rag.application.service.PromptInjectionScanner;
 import com.rag.rag.application.usecase.GetDocumentUseCase;
@@ -16,6 +23,7 @@ import com.rag.rag.application.usecase.RegisterDocumentUseCase;
 import com.rag.rag.application.usecase.RequestDocumentProcessingUseCase;
 import com.rag.rag.application.usecase.RetryDocumentProcessingRequestUseCase;
 import java.time.Duration;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -44,6 +52,41 @@ class ApplicationConfig {
 		EmbeddingModel embeddingModel,
 		@Value("${spring.ai.ollama.embedding.model:mxbai-embed-large}") String modelName) {
 		return new SpringAiEmbeddingGeneratorAdapter(embeddingModel, modelName);
+	}
+
+	@Bean
+	RagAnswerGeneratorPort ragAnswerGeneratorPort(ChatClient.Builder chatClientBuilder) {
+		return new SpringAiRagAnswerGeneratorAdapter(chatClientBuilder.build());
+	}
+
+	@Bean
+	RagPromptBuilder ragPromptBuilder() {
+		return new RagPromptBuilder();
+	}
+
+	@Bean
+	RagOutputValidator ragOutputValidator() {
+		return new RagOutputValidator();
+	}
+
+	@Bean
+	RetrieveContextUseCase retrieveContextUseCase(
+		EmbeddingGeneratorPort embeddings,
+		VectorSearchPort vectorSearch) {
+		return new RetrieveContextUseCase(embeddings, vectorSearch);
+	}
+
+	@Bean
+	AskQuestionUseCase askQuestionUseCase(
+		RetrieveContextUseCase retrieveContext,
+		RagPromptBuilder promptBuilder,
+		RagAnswerGeneratorPort answerGenerator,
+		RagOutputValidator outputValidator) {
+		return new AskQuestionUseCase(
+			retrieveContext,
+			promptBuilder,
+			answerGenerator,
+			outputValidator);
 	}
 
 	@Bean
