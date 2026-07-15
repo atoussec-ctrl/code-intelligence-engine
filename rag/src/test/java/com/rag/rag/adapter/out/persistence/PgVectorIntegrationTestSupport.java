@@ -34,7 +34,8 @@ abstract class PgVectorIntegrationTestSupport {
     @BeforeEach
     void resetDatabase() {
         jdbcTemplate = new JdbcTemplate(dataSource());
-        jdbcTemplate.execute("TRUNCATE TABLE chunk_embeddings, chunks, documents CASCADE");
+        jdbcTemplate.execute(
+                "TRUNCATE TABLE document_processing_requests, chunk_embeddings, chunks, documents CASCADE");
     }
 
     private static DriverManagerDataSource dataSource() {

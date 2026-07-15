@@ -10,8 +10,10 @@ import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @Configuration(proxyBeanMethods = false)
+@EnableScheduling
 public class RabbitDocumentProcessingConfig {
 
 	public static final String PROCESSING_EXCHANGE = "rag.document-processing";

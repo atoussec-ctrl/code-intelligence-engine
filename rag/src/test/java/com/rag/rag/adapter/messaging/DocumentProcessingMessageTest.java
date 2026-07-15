@@ -3,26 +3,25 @@ package com.rag.rag.adapter.messaging;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.rag.rag.application.usecase.ProcessDocumentCommand;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class DocumentProcessingMessageTest {
 
 	@Test
-	void mapsApplicationCommandToAndFromWireMessage() {
-		var command = new ProcessDocumentCommand(UUID.randomUUID(), UUID.randomUUID(), "content", 256);
+	void carriesOnlyProcessingRequestId() {
+		var requestId = UUID.randomUUID();
 
-		var message = DocumentProcessingMessage.from(command);
+		var message = new DocumentProcessingMessage(requestId);
 
-		assertEquals(command, message.toCommand());
+		assertEquals(requestId, message.requestId());
 	}
 
 	@Test
-	void rejectsNullCommand() {
-		var thrown = assertThrows(NullPointerException.class, () -> DocumentProcessingMessage.from(null));
+	void rejectsNullRequestId() {
+		var thrown = assertThrows(NullPointerException.class, () -> new DocumentProcessingMessage(null));
 
-		assertEquals("command is required", thrown.getMessage());
+		assertEquals("request id is required", thrown.getMessage());
 	}
 
 }

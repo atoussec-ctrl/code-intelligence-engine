@@ -1,26 +1,29 @@
 package com.rag.rag.application.usecase;
 
-import com.rag.rag.application.port.out.DocumentProcessingQueuePort;
+import com.rag.rag.application.port.out.DocumentProcessingRequestPort;
 import com.rag.rag.application.port.out.DocumentRepositoryPort;
 import java.util.Objects;
+import java.util.UUID;
 
 public class RequestDocumentProcessingUseCase {
 
 	private final DocumentRepositoryPort documents;
-	private final DocumentProcessingQueuePort processingQueue;
+	private final DocumentProcessingRequestPort processingRequests;
 
 	public RequestDocumentProcessingUseCase(
 		DocumentRepositoryPort documents,
-		DocumentProcessingQueuePort processingQueue) {
+		DocumentProcessingRequestPort processingRequests) {
 		this.documents = Objects.requireNonNull(documents, "documents is required");
-		this.processingQueue = Objects.requireNonNull(processingQueue, "processing queue is required");
+		this.processingRequests = Objects.requireNonNull(
+			processingRequests,
+			"processing requests are required");
 	}
 
-	public void execute(ProcessDocumentCommand command) {
+	public UUID execute(ProcessDocumentCommand command) {
 		Objects.requireNonNull(command, "command is required");
 		documents.findById(command.workspaceId(), command.documentId())
 			.orElseThrow(DocumentNotFoundException::new);
-		processingQueue.enqueue(command);
+		return processingRequests.create(command);
 	}
 
 }

@@ -6,9 +6,8 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
-import com.rag.rag.application.port.out.DocumentProcessingQueuePort;
-import com.rag.rag.application.usecase.ProcessDocumentCommand;
-import com.rag.rag.application.usecase.ProcessDocumentUseCase;
+import com.rag.rag.adapter.out.messaging.RabbitDocumentProcessingPublisher;
+import com.rag.rag.application.usecase.ProcessQueuedDocumentUseCase;
 import com.rag.rag.config.RabbitDocumentProcessingConfig;
 import java.time.Duration;
 import java.util.UUID;
@@ -32,7 +31,10 @@ import org.testcontainers.utility.DockerImageName;
 	"spring.rabbitmq.listener.simple.auto-startup=true",
 	"spring.rabbitmq.listener.simple.retry.initial-interval=10ms",
 	"spring.rabbitmq.listener.simple.retry.multiplier=1",
-	"spring.rabbitmq.listener.simple.retry.max-interval=10ms"
+	"spring.rabbitmq.listener.simple.retry.max-interval=10ms",
+	"spring.rabbitmq.publisher-confirm-type=correlated",
+	"spring.rabbitmq.publisher-returns=true",
+	"spring.rabbitmq.template.mandatory=true"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers(disabledWithoutDocker = true)
@@ -43,7 +45,7 @@ class RabbitDocumentProcessingIntegrationTest {
 		new RabbitMQContainer(DockerImageName.parse("rabbitmq:3-management"));
 
 	@Autowired
-	private DocumentProcessingQueuePort processingQueue;
+	private RabbitDocumentProcessingPublisher publisher;
 
 	@Autowired
 	private RabbitAdmin rabbitAdmin;
@@ -52,7 +54,7 @@ class RabbitDocumentProcessingIntegrationTest {
 	private RabbitTemplate rabbitTemplate;
 
 	@MockitoBean
-	private ProcessDocumentUseCase processDocument;
+	private ProcessQueuedDocumentUseCase processDocument;
 
 	@DynamicPropertySource
 	static void rabbitProperties(DynamicPropertyRegistry registry) {
@@ -70,22 +72,22 @@ class RabbitDocumentProcessingIntegrationTest {
 
 	@Test
 	void publishesAndConsumesDocumentProcessingMessage() {
-		var command = command();
+		var requestId = UUID.randomUUID();
 
-		processingQueue.enqueue(command);
+		publisher.publish(requestId);
 
-		verify(processDocument, timeout(Duration.ofSeconds(10).toMillis())).execute(command);
+		verify(processDocument, timeout(Duration.ofSeconds(10).toMillis())).execute(requestId);
 	}
 
 	@Test
 	void retriesFailedProcessingAndRoutesExhaustedMessageToDeadLetterQueue() {
-		var command = command();
+		var requestId = UUID.randomUUID();
 		doThrow(new IllegalStateException("embedding provider unavailable"))
-			.when(processDocument).execute(command);
+			.when(processDocument).execute(requestId);
 
-		processingQueue.enqueue(command);
+		publisher.publish(requestId);
 
-		verify(processDocument, timeout(Duration.ofSeconds(10).toMillis()).times(3)).execute(command);
+		verify(processDocument, timeout(Duration.ofSeconds(10).toMillis()).times(3)).execute(requestId);
 		var failedMessage = new AtomicReference<Object>();
 		await().atMost(Duration.ofSeconds(10)).until(() -> {
 			var received = rabbitTemplate.receiveAndConvert(RabbitDocumentProcessingConfig.DEAD_LETTER_QUEUE);
@@ -95,11 +97,7 @@ class RabbitDocumentProcessingIntegrationTest {
 			failedMessage.set(received);
 			return true;
 		});
-		assertEquals(DocumentProcessingMessage.from(command), failedMessage.get());
-	}
-
-	private ProcessDocumentCommand command() {
-		return new ProcessDocumentCommand(UUID.randomUUID(), UUID.randomUUID(), "content", 256);
+		assertEquals(new DocumentProcessingMessage(requestId), failedMessage.get());
 	}
 
 }

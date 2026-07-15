@@ -6,7 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.rag.rag.adapter.messaging.DocumentProcessingMessage;
-import com.rag.rag.application.usecase.ProcessDocumentUseCase;
+import com.rag.rag.application.usecase.ProcessQueuedDocumentUseCase;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -14,13 +14,13 @@ class RabbitDocumentProcessingListenerTest {
 
 	@Test
 	void processesReceivedMessage() {
-		var processDocument = mock(ProcessDocumentUseCase.class);
+		var processDocument = mock(ProcessQueuedDocumentUseCase.class);
 		var listener = new RabbitDocumentProcessingListener(processDocument);
-		var message = new DocumentProcessingMessage(UUID.randomUUID(), UUID.randomUUID(), "content", 256);
+		var message = new DocumentProcessingMessage(UUID.randomUUID());
 
 		listener.handle(message);
 
-		verify(processDocument).execute(message.toCommand());
+		verify(processDocument).execute(message.requestId());
 	}
 
 	@Test

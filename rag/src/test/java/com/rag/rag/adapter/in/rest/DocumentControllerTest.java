@@ -15,7 +15,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.rag.rag.application.usecase.DocumentNotFoundException;
-import com.rag.rag.application.usecase.DocumentProcessingUnavailableException;
 import com.rag.rag.application.usecase.GetDocumentQuery;
 import com.rag.rag.application.usecase.GetDocumentResult;
 import com.rag.rag.application.usecase.GetDocumentUseCase;
@@ -282,26 +281,6 @@ class DocumentControllerTest {
 			.andExpect(status().isNotFound())
 			.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
 			.andExpect(jsonPath("$.detail").value("document not found"));
-	}
-
-	@Test
-	void returnsServiceUnavailableWhenProcessingQueueCannotBeReached() throws Exception {
-		var cause = new IllegalStateException("broker unavailable");
-		doThrow(new DocumentProcessingUnavailableException(cause))
-			.when(requestDocumentProcessing)
-			.execute(any(ProcessDocumentCommand.class));
-
-		mockMvc.perform(post(
-				"/api/v1/workspaces/{workspaceId}/documents/{documentId}/processing",
-				UUID.randomUUID(),
-				UUID.randomUUID())
-				.with(user("engineer"))
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(validProcessingRequest()))
-			.andExpect(status().isServiceUnavailable())
-			.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-			.andExpect(jsonPath("$.title").value("Document processing unavailable"))
-			.andExpect(jsonPath("$.detail").value("document processing is temporarily unavailable"));
 	}
 
 	private String validRequest() {

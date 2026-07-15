@@ -10,6 +10,8 @@ import com.rag.rag.domain.document.DocumentSourceType;
 import com.rag.rag.domain.document.DocumentStatus;
 import com.rag.rag.domain.embedding.ChunkEmbedding;
 import com.rag.rag.domain.embedding.EmbeddingVector;
+import com.rag.rag.application.usecase.ProcessDocumentCommand;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -20,11 +22,13 @@ class PostgresPersistenceAdaptersIntegrationTest extends PgVectorIntegrationTest
 
     private PostgresDocumentRepositoryAdapter documents;
     private PostgresChunkEmbeddingRepositoryAdapter chunkEmbeddings;
+    private PostgresDocumentProcessingRequestAdapter processingRequests;
 
     @BeforeEach
     void setUp() {
         documents = new PostgresDocumentRepositoryAdapter(jdbcTemplate);
         chunkEmbeddings = new PostgresChunkEmbeddingRepositoryAdapter(jdbcTemplate);
+        processingRequests = new PostgresDocumentProcessingRequestAdapter(jdbcTemplate);
     }
 
     @Test
@@ -154,6 +158,83 @@ class PostgresPersistenceAdaptersIntegrationTest extends PgVectorIntegrationTest
         assertThat(readChunkContent(validChunk.id())).isEqualTo("Existing scope.");
     }
 
+    @Test
+    void persistsClaimsPublishesAndCompletesDocumentProcessingRequest() {
+        UUID workspaceId = UUID.randomUUID();
+        UUID documentId = insertDocument(
+                workspaceId,
+                "Architecture Notes",
+                "TEXT",
+                null,
+                "checksum-123",
+                "INGESTION_REQUESTED",
+                Map.of());
+        ProcessDocumentCommand command = new ProcessDocumentCommand(
+                workspaceId,
+                documentId,
+                "Durable processing content.",
+                256);
+
+        UUID requestId = processingRequests.create(command);
+
+        assertThat(readProcessingRequestStatus(requestId)).isEqualTo("PENDING");
+        assertThat(processingRequests.findCommandById(requestId)).contains(command);
+
+        List<ClaimedDocumentProcessingRequest> claimed =
+                processingRequests.claimPending(10, Duration.ofSeconds(30));
+
+        assertThat(claimed).containsExactly(new ClaimedDocumentProcessingRequest(requestId, 1));
+        assertThat(readProcessingRequestStatus(requestId)).isEqualTo("DISPATCHING");
+        assertThat(processingRequests.claimPending(10, Duration.ofSeconds(30))).isEmpty();
+
+        processingRequests.markPublished(requestId);
+
+        assertThat(readProcessingRequestStatus(requestId)).isEqualTo("PUBLISHED");
+        assertThat(readTimestamp("published_at", requestId)).isNotNull();
+
+        processingRequests.markCompleted(requestId);
+
+        assertThat(readProcessingRequestStatus(requestId)).isEqualTo("COMPLETED");
+        assertThat(readTimestamp("completed_at", requestId)).isNotNull();
+    }
+
+    @Test
+    void reschedulesPublicationFailureAndReclaimsExpiredLease() {
+        UUID workspaceId = UUID.randomUUID();
+        UUID documentId = insertDocument(
+                workspaceId,
+                "Architecture Notes",
+                "TEXT",
+                null,
+                "checksum-123",
+                "INGESTION_REQUESTED",
+                Map.of());
+        UUID requestId = processingRequests.create(new ProcessDocumentCommand(
+                workspaceId,
+                documentId,
+                "Retry processing content.",
+                256));
+        processingRequests.claimPending(1, Duration.ofSeconds(30));
+
+        processingRequests.reschedule(requestId, "connection refused", Duration.ofMinutes(1));
+
+        assertThat(readProcessingRequestStatus(requestId)).isEqualTo("PENDING");
+        assertThat(readProcessingRequestError(requestId)).isEqualTo("connection refused");
+        assertThat(processingRequests.claimPending(1, Duration.ofSeconds(30))).isEmpty();
+
+        jdbcTemplate.update(
+                "UPDATE document_processing_requests SET available_at = now() - interval '1 second' WHERE id = ?",
+                requestId);
+        assertThat(processingRequests.claimPending(1, Duration.ofMillis(1)))
+                .containsExactly(new ClaimedDocumentProcessingRequest(requestId, 2));
+
+        jdbcTemplate.update(
+                "UPDATE document_processing_requests SET lease_until = now() - interval '1 second' WHERE id = ?",
+                requestId);
+        assertThat(processingRequests.claimPending(1, Duration.ofSeconds(30)))
+                .containsExactly(new ClaimedDocumentProcessingRequest(requestId, 3));
+    }
+
     private UUID insertDocument(
             UUID workspaceId,
             String title,
@@ -224,5 +305,26 @@ class PostgresPersistenceAdaptersIntegrationTest extends PgVectorIntegrationTest
                 "SELECT model FROM chunk_embeddings WHERE chunk_id = ?",
                 String.class,
                 chunkId);
+    }
+
+    private String readProcessingRequestStatus(UUID requestId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT status FROM document_processing_requests WHERE id = ?",
+                String.class,
+                requestId);
+    }
+
+    private String readProcessingRequestError(UUID requestId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT last_error FROM document_processing_requests WHERE id = ?",
+                String.class,
+                requestId);
+    }
+
+    private java.time.OffsetDateTime readTimestamp(String column, UUID requestId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT " + column + " FROM document_processing_requests WHERE id = ?",
+                java.time.OffsetDateTime.class,
+                requestId);
     }
 }
