@@ -23,8 +23,11 @@ public class PgVectorSearchAdapter implements VectorSearchPort {
                 1 - (ce.embedding <=> ?::vector) AS score
             FROM chunk_embeddings ce
             JOIN chunks c ON c.id = ce.chunk_id
+                AND c.workspace_id = ce.workspace_id
+                AND c.document_id = ce.document_id
             JOIN documents d ON d.id = c.document_id AND d.workspace_id = c.workspace_id
-            WHERE c.workspace_id = ?
+            WHERE ce.workspace_id = ?
+                AND ce.model = ?
             ORDER BY ce.embedding <=> ?::vector
             LIMIT ?
             """;
@@ -44,6 +47,7 @@ public class PgVectorSearchAdapter implements VectorSearchPort {
                 this::mapRow,
                 vectorLiteral,
                 query.workspaceId(),
+                query.embedding().model(),
                 vectorLiteral,
                 query.topK());
     }

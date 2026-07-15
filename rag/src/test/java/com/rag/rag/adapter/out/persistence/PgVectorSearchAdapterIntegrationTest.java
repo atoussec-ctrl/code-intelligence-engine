@@ -21,13 +21,14 @@ class PgVectorSearchAdapterIntegrationTest extends PgVectorIntegrationTestSuppor
     }
 
     @Test
-    void searchesPgvectorWithoutLeakingResultsAcrossWorkspaces() {
+    void searchesPgvectorWithoutMixingWorkspacesOrEmbeddingModels() {
         UUID workspaceA = UUID.randomUUID();
         UUID workspaceB = UUID.randomUUID();
 
-        insertKnowledge(workspaceA, "Architecture Notes", "Ports isolate adapters.", "[1,0,0]");
-        insertKnowledge(workspaceA, "Messaging Notes", "Queues handle async ingestion.", "[0,1,0]");
-        insertKnowledge(workspaceB, "Private Tenant Notes", "This tenant must not leak.", "[1,0,0]");
+        insertKnowledge(workspaceA, "Architecture Notes", "Ports isolate adapters.", "test-model", "[1,0,0]");
+        insertKnowledge(workspaceA, "Messaging Notes", "Queues handle async ingestion.", "test-model", "[0,1,0]");
+        insertKnowledge(workspaceA, "Legacy Model Notes", "Incompatible embedding space.", "legacy-model", "[1,0]");
+        insertKnowledge(workspaceB, "Private Tenant Notes", "This tenant must not leak.", "test-model", "[1,0,0]");
 
         List<RetrievedContext> results = adapter.search(new VectorSearchQuery(
                 workspaceA,
@@ -43,7 +44,12 @@ class PgVectorSearchAdapterIntegrationTest extends PgVectorIntegrationTestSuppor
         assertThat(results.getFirst().score()).isGreaterThan(results.getLast().score());
     }
 
-    private void insertKnowledge(UUID workspaceId, String title, String content, String embedding) {
+    private void insertKnowledge(
+            UUID workspaceId,
+            String title,
+            String content,
+            String model,
+            String embedding) {
         UUID documentId = UUID.randomUUID();
         UUID chunkId = UUID.randomUUID();
 
@@ -68,11 +74,12 @@ class PgVectorSearchAdapterIntegrationTest extends PgVectorIntegrationTestSuppor
         jdbcTemplate.update(
                 """
                 INSERT INTO chunk_embeddings (chunk_id, workspace_id, document_id, model, embedding)
-                VALUES (?, ?, ?, 'test-model', ?::vector)
+                VALUES (?, ?, ?, ?, ?::vector)
                 """,
                 chunkId,
                 workspaceId,
                 documentId,
+                model,
                 embedding);
     }
 }

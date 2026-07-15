@@ -17,6 +17,7 @@ public record EmbeddingVector(List<Double> values, String model) {
 			throw new IllegalArgumentException("embedding model is required");
 		}
 		values = List.copyOf(values);
+		model = model.trim();
 	}
 
 	public static EmbeddingVector of(List<Double> values, String model) {

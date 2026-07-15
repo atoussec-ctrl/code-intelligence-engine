@@ -11,7 +11,7 @@ class EmbeddingVectorTest {
 
 	@Test
 	void createsImmutableEmbeddingVector() {
-		var vector = EmbeddingVector.of(List.of(0.1, 0.2, 0.3), "test-embedding-model");
+		var vector = EmbeddingVector.of(List.of(0.1, 0.2, 0.3), " test-embedding-model ");
 
 		assertEquals("test-embedding-model", vector.model());
 		assertEquals(3, vector.dimensions());

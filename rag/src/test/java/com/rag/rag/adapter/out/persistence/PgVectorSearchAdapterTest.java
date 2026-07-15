@@ -32,11 +32,17 @@ class PgVectorSearchAdapterTest {
 
         assertThat(results).containsExactly(context);
         assertThat(jdbcTemplate.sql())
-                .contains("WHERE c.workspace_id = ?")
+                .contains("WHERE ce.workspace_id = ?")
+                .contains("AND ce.model = ?")
                 .contains("ORDER BY ce.embedding <=> ?::vector")
                 .doesNotContain(workspaceId.toString())
                 .doesNotContain("[0.1,-2.0,3.5]");
-        assertThat(jdbcTemplate.args()).containsExactly("[0.1,-2.0,3.5]", workspaceId, "[0.1,-2.0,3.5]", 3);
+        assertThat(jdbcTemplate.args()).containsExactly(
+                "[0.1,-2.0,3.5]",
+                workspaceId,
+                "test-model",
+                "[0.1,-2.0,3.5]",
+                3);
     }
 
     @Test
