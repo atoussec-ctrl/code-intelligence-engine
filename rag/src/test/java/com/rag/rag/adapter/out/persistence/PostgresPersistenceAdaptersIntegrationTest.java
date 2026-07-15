@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rag.rag.domain.document.Chunk;
 import com.rag.rag.domain.document.Document;
+import com.rag.rag.domain.document.DocumentSource;
 import com.rag.rag.domain.document.DocumentSourceType;
 import com.rag.rag.domain.document.DocumentStatus;
 import com.rag.rag.domain.embedding.ChunkEmbedding;
@@ -24,6 +25,30 @@ class PostgresPersistenceAdaptersIntegrationTest extends PgVectorIntegrationTest
     void setUp() {
         documents = new PostgresDocumentRepositoryAdapter(jdbcTemplate);
         chunkEmbeddings = new PostgresChunkEmbeddingRepositoryAdapter(jdbcTemplate);
+    }
+
+    @Test
+    void savesDocumentAndFindsItByWorkspaceAndId() {
+        UUID workspaceId = UUID.randomUUID();
+        Document document = Document.create(
+                workspaceId,
+                "Architecture Notes",
+                DocumentSource.text(),
+                "checksum-123",
+                Map.of("tag", "architecture"));
+
+        Document saved = documents.save(document);
+        Document found = documents.findById(workspaceId, saved.id()).orElseThrow();
+
+        assertThat(saved).isSameAs(document);
+        assertThat(found.id()).isEqualTo(document.id());
+        assertThat(found.workspaceId()).isEqualTo(workspaceId);
+        assertThat(found.title()).isEqualTo("Architecture Notes");
+        assertThat(found.source().type()).isEqualTo(DocumentSourceType.TEXT);
+        assertThat(found.source().uri()).isNull();
+        assertThat(found.checksum()).isEqualTo("checksum-123");
+        assertThat(found.status()).isEqualTo(DocumentStatus.INGESTION_REQUESTED);
+        assertThat(found.metadata()).containsEntry("tag", "architecture");
     }
 
     @Test

@@ -7,6 +7,8 @@ import java.util.UUID;
 
 public interface DocumentRepositoryPort {
 
+	Document save(Document document);
+
 	Optional<Document> findById(UUID workspaceId, UUID documentId);
 
 	void markProcessing(UUID workspaceId, UUID documentId);

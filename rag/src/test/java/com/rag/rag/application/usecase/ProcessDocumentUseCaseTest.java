@@ -160,6 +160,11 @@ class ProcessDocumentUseCaseTest {
 		}
 
 		@Override
+		public Document save(Document document) {
+			throw new UnsupportedOperationException("save is not used by this test");
+		}
+
+		@Override
 		public Optional<Document> findById(UUID workspaceId, UUID documentId) {
 			if (document == null) {
 				return Optional.empty();

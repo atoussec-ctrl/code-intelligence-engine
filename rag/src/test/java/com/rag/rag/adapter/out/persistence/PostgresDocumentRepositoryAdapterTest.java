@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.rag.rag.domain.document.Document;
+import com.rag.rag.domain.document.DocumentSource;
 import com.rag.rag.domain.document.DocumentSourceType;
 import com.rag.rag.domain.document.DocumentStatus;
 import java.sql.ResultSet;
@@ -17,6 +19,45 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
 class PostgresDocumentRepositoryAdapterTest {
+
+    @Test
+    void rejectsNullDocumentWhenSaving() {
+        PostgresDocumentRepositoryAdapter adapter = new PostgresDocumentRepositoryAdapter(
+                new RecordingJdbcTemplate(null));
+
+        assertThatThrownBy(() -> adapter.save(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("document is required");
+    }
+
+    @Test
+    void savesDocumentWithPreparedSql() {
+        RecordingJdbcTemplate jdbcTemplate = new RecordingJdbcTemplate(null);
+        PostgresDocumentRepositoryAdapter adapter = new PostgresDocumentRepositoryAdapter(jdbcTemplate);
+        UUID workspaceId = UUID.randomUUID();
+        Document document = Document.create(
+                workspaceId,
+                "Architecture Notes",
+                DocumentSource.url("https://example.com/architecture"),
+                "checksum-123",
+                java.util.Map.of("tag", "architecture"));
+
+        Document saved = adapter.save(document);
+
+        assertThat(saved).isSameAs(document);
+        assertThat(jdbcTemplate.updates()).hasSize(1);
+        RecordedUpdate insert = jdbcTemplate.updates().getFirst();
+        assertThat(insert.sql()).contains("INSERT INTO documents").contains("?::jsonb");
+        assertThat(insert.args()[0]).isEqualTo(document.id());
+        assertThat(insert.args()[1]).isEqualTo(workspaceId);
+        assertThat(insert.args()[2]).isEqualTo("Architecture Notes");
+        assertThat(insert.args()[3]).isEqualTo("URL");
+        assertThat(insert.args()[4]).isEqualTo("https://example.com/architecture");
+        assertThat(insert.args()[5]).isEqualTo("checksum-123");
+        assertThat(insert.args()[6]).isEqualTo("INGESTION_REQUESTED");
+        assertThat(JsonbMetadata.read((String) insert.args()[7]))
+                .containsEntry("tag", "architecture");
+    }
 
     @Test
     void findsDocumentByIdWithMappedJsonMetadata() throws SQLException {

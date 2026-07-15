@@ -29,6 +29,25 @@ public class PostgresDocumentRepositoryAdapter implements DocumentRepositoryPort
     }
 
     @Override
+    public Document save(Document document) {
+        Objects.requireNonNull(document, "document is required");
+        jdbcTemplate.update(
+                """
+                INSERT INTO documents (id, workspace_id, title, source_type, source_uri, checksum, status, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+                """,
+                document.id(),
+                document.workspaceId(),
+                document.title(),
+                document.source().type().name(),
+                document.source().uri(),
+                document.checksum(),
+                document.status().name(),
+                JsonbMetadata.write(document.metadata()));
+        return document;
+    }
+
+    @Override
     public Optional<Document> findById(UUID workspaceId, UUID documentId) {
         return jdbcTemplate.query(FIND_BY_ID_SQL, this::mapDocument, workspaceId, documentId)
                 .stream()
