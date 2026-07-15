@@ -6,6 +6,7 @@ import com.rag.rag.application.port.out.EmbeddingGeneratorPort;
 import com.rag.rag.application.service.ChunkingService;
 import com.rag.rag.application.service.PromptInjectionScanner;
 import com.rag.rag.domain.embedding.ChunkEmbedding;
+import java.util.Objects;
 
 public class ProcessDocumentUseCase {
 
@@ -21,16 +22,19 @@ public class ProcessDocumentUseCase {
 		PromptInjectionScanner promptInjectionScanner,
 		EmbeddingGeneratorPort embeddings,
 		ChunkEmbeddingRepositoryPort chunkEmbeddings) {
-		this.documents = documents;
-		this.chunkingService = chunkingService;
-		this.promptInjectionScanner = promptInjectionScanner;
-		this.embeddings = embeddings;
-		this.chunkEmbeddings = chunkEmbeddings;
+		this.documents = Objects.requireNonNull(documents, "documents is required");
+		this.chunkingService = Objects.requireNonNull(chunkingService, "chunking service is required");
+		this.promptInjectionScanner = Objects.requireNonNull(
+			promptInjectionScanner,
+			"prompt injection scanner is required");
+		this.embeddings = Objects.requireNonNull(embeddings, "embeddings are required");
+		this.chunkEmbeddings = Objects.requireNonNull(chunkEmbeddings, "chunk embeddings are required");
 	}
 
 	public ProcessDocumentResult execute(ProcessDocumentCommand command) {
+		Objects.requireNonNull(command, "command is required");
 		var document = documents.findById(command.workspaceId(), command.documentId())
-			.orElseThrow(() -> new IllegalArgumentException("document not found"));
+			.orElseThrow(DocumentNotFoundException::new);
 
 		documents.markProcessing(command.workspaceId(), command.documentId());
 
@@ -59,7 +63,11 @@ public class ProcessDocumentUseCase {
 			return new ProcessDocumentResult(document.id(), chunks.size());
 		}
 		catch (RuntimeException exception) {
-			documents.markFailed(command.workspaceId(), document.id(), exception.getMessage());
+			var failureReason = exception.getMessage();
+			if (failureReason == null || failureReason.isBlank()) {
+				failureReason = exception.getClass().getSimpleName();
+			}
+			documents.markFailed(command.workspaceId(), document.id(), failureReason);
 			throw exception;
 		}
 	}

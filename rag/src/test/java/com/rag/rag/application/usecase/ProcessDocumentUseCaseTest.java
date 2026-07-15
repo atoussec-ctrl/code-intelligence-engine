@@ -105,7 +105,7 @@ class ProcessDocumentUseCaseTest {
 			chunkEmbeddings);
 
 		var thrown = assertThrows(
-			IllegalArgumentException.class,
+			DocumentNotFoundException.class,
 			() -> useCase.execute(new ProcessDocumentCommand(
 				UUID.randomUUID(),
 				UUID.randomUUID(),
@@ -115,6 +115,86 @@ class ProcessDocumentUseCaseTest {
 		assertEquals("document not found", thrown.getMessage());
 		assertTrue(embeddings.requestedTexts.isEmpty());
 		assertTrue(chunkEmbeddings.saved.isEmpty());
+	}
+
+	@Test
+	void validatesDependenciesAndCommand() {
+		var documents = new FakeDocumentRepository(null);
+		var chunkingService = new ChunkingService();
+		var scanner = new PromptInjectionScanner();
+		var embeddings = new FakeEmbeddingGenerator();
+		var chunkEmbeddings = new FakeChunkEmbeddingRepository();
+
+		assertEquals(
+			"documents is required",
+			assertThrows(
+				NullPointerException.class,
+				() -> new ProcessDocumentUseCase(null, chunkingService, scanner, embeddings, chunkEmbeddings))
+				.getMessage());
+		assertEquals(
+			"chunking service is required",
+			assertThrows(
+				NullPointerException.class,
+				() -> new ProcessDocumentUseCase(documents, null, scanner, embeddings, chunkEmbeddings))
+				.getMessage());
+		assertEquals(
+			"prompt injection scanner is required",
+			assertThrows(
+				NullPointerException.class,
+				() -> new ProcessDocumentUseCase(documents, chunkingService, null, embeddings, chunkEmbeddings))
+				.getMessage());
+		assertEquals(
+			"embeddings are required",
+			assertThrows(
+				NullPointerException.class,
+				() -> new ProcessDocumentUseCase(documents, chunkingService, scanner, null, chunkEmbeddings))
+				.getMessage());
+		assertEquals(
+			"chunk embeddings are required",
+			assertThrows(
+				NullPointerException.class,
+				() -> new ProcessDocumentUseCase(documents, chunkingService, scanner, embeddings, null))
+				.getMessage());
+
+		var useCase = new ProcessDocumentUseCase(
+			documents,
+			chunkingService,
+			scanner,
+			embeddings,
+			chunkEmbeddings);
+		assertEquals(
+			"command is required",
+			assertThrows(NullPointerException.class, () -> useCase.execute(null)).getMessage());
+	}
+
+	@Test
+	void recordsExceptionTypeWhenFailureHasNoMessage() {
+		var workspaceId = UUID.randomUUID();
+		var document = Document.create(
+			workspaceId,
+			"Architecture Notes",
+			DocumentSource.text(),
+			"checksum-123",
+			Map.of());
+		var documents = new FakeDocumentRepository(document);
+		var embeddings = new FakeEmbeddingGenerator();
+		embeddings.failWithoutMessage = true;
+		var useCase = new ProcessDocumentUseCase(
+			documents,
+			new ChunkingService(),
+			new PromptInjectionScanner(),
+			embeddings,
+			new FakeChunkEmbeddingRepository());
+
+		assertThrows(
+			IllegalStateException.class,
+			() -> useCase.execute(new ProcessDocumentCommand(
+				workspaceId,
+				document.id(),
+				"one two",
+				2)));
+
+		assertEquals(List.of("PROCESSING", "FAILED:IllegalStateException"), documents.statusTransitions);
 	}
 
 	@Test
@@ -195,12 +275,16 @@ class ProcessDocumentUseCaseTest {
 
 		private final List<String> requestedTexts = new ArrayList<>();
 		private boolean fail;
+		private boolean failWithoutMessage;
 
 		@Override
 		public List<EmbeddingVector> generateBatch(List<String> texts) {
 			requestedTexts.addAll(texts);
 			if (fail) {
 				throw new IllegalStateException("embedding provider unavailable");
+			}
+			if (failWithoutMessage) {
+				throw new IllegalStateException();
 			}
 			return texts.stream()
 				.map(text -> EmbeddingVector.of(List.of(0.1, 0.2, (double) text.length()), "fake-embedding-model"))
