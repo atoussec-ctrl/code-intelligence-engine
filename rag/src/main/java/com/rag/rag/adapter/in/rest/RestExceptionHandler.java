@@ -1,6 +1,7 @@
 package com.rag.rag.adapter.in.rest;
 
 import com.rag.rag.application.usecase.DocumentNotFoundException;
+import com.rag.rag.application.usecase.DocumentProcessingRequestNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -24,6 +25,13 @@ class RestExceptionHandler {
 	ProblemDetail handleDocumentNotFound(DocumentNotFoundException exception) {
 		var problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
 		problem.setTitle("Document not found");
+		return problem;
+	}
+
+	@ExceptionHandler(DocumentProcessingRequestNotFoundException.class)
+	ProblemDetail handleProcessingRequestNotFound(DocumentProcessingRequestNotFoundException exception) {
+		var problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+		problem.setTitle("Document processing request not found");
 		return problem;
 	}
 

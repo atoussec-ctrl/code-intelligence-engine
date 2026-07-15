@@ -25,10 +25,38 @@ class PostgresDocumentProcessingRequestAdapterTest {
 			assertThrows(NullPointerException.class, () -> adapter.create(null)).getMessage());
 		assertEquals(
 			"request id is required",
-			assertThrows(NullPointerException.class, () -> adapter.findCommandById(null)).getMessage());
+			assertThrows(
+				NullPointerException.class,
+				() -> adapter.claimForProcessing(null, Duration.ofMinutes(1))).getMessage());
+		assertEquals(
+			"processing lease duration must be positive",
+			assertThrows(
+				IllegalArgumentException.class,
+				() -> adapter.claimForProcessing(UUID.randomUUID(), Duration.ZERO)).getMessage());
+		assertEquals(
+			"workspace id is required",
+			assertThrows(
+				NullPointerException.class,
+				() -> adapter.findById(null, UUID.randomUUID(), UUID.randomUUID())).getMessage());
+		assertEquals(
+			"document id is required",
+			assertThrows(
+				NullPointerException.class,
+				() -> adapter.findById(UUID.randomUUID(), null, UUID.randomUUID())).getMessage());
+		assertEquals(
+			"request id is required",
+			assertThrows(
+				NullPointerException.class,
+				() -> adapter.findById(UUID.randomUUID(), UUID.randomUUID(), null)).getMessage());
 		assertEquals(
 			"request id is required",
 			assertThrows(NullPointerException.class, () -> adapter.markCompleted(null)).getMessage());
+		assertEquals(
+			"request id is required",
+			assertThrows(NullPointerException.class, () -> adapter.releaseForRetry(null, "failure")).getMessage());
+		assertEquals(
+			"request id is required",
+			assertThrows(NullPointerException.class, () -> adapter.markFailed(null, "failure")).getMessage());
 	}
 
 	@Test

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 import com.rag.rag.adapter.out.messaging.RabbitDocumentProcessingPublisher;
+import com.rag.rag.application.port.out.DocumentProcessingRequestPort;
 import com.rag.rag.application.usecase.ProcessQueuedDocumentUseCase;
 import com.rag.rag.config.RabbitDocumentProcessingConfig;
 import java.time.Duration;
@@ -56,6 +57,9 @@ class RabbitDocumentProcessingIntegrationTest {
 	@MockitoBean
 	private ProcessQueuedDocumentUseCase processDocument;
 
+	@MockitoBean
+	private DocumentProcessingRequestPort processingRequests;
+
 	@DynamicPropertySource
 	static void rabbitProperties(DynamicPropertyRegistry registry) {
 		registry.add("spring.rabbitmq.host", RABBITMQ::getHost);
@@ -98,6 +102,8 @@ class RabbitDocumentProcessingIntegrationTest {
 			return true;
 		});
 		assertEquals(new DocumentProcessingMessage(requestId), failedMessage.get());
+		verify(processingRequests, timeout(Duration.ofSeconds(10).toMillis()))
+			.markFailed(requestId, "embedding provider unavailable");
 	}
 
 }

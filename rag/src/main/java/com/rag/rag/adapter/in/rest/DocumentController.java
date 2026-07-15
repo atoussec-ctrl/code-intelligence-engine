@@ -1,6 +1,8 @@
 package com.rag.rag.adapter.in.rest;
 
 import com.rag.rag.application.usecase.GetDocumentQuery;
+import com.rag.rag.application.usecase.GetDocumentProcessingRequestQuery;
+import com.rag.rag.application.usecase.GetDocumentProcessingRequestUseCase;
 import com.rag.rag.application.usecase.GetDocumentUseCase;
 import com.rag.rag.application.usecase.RequestDocumentProcessingUseCase;
 import com.rag.rag.application.usecase.RegisterDocumentUseCase;
@@ -20,14 +22,17 @@ class DocumentController {
 
 	private final RegisterDocumentUseCase registerDocument;
 	private final GetDocumentUseCase getDocument;
+	private final GetDocumentProcessingRequestUseCase getDocumentProcessingRequest;
 	private final RequestDocumentProcessingUseCase requestDocumentProcessing;
 
 	DocumentController(
 		RegisterDocumentUseCase registerDocument,
 		GetDocumentUseCase getDocument,
+		GetDocumentProcessingRequestUseCase getDocumentProcessingRequest,
 		RequestDocumentProcessingUseCase requestDocumentProcessing) {
 		this.registerDocument = registerDocument;
 		this.getDocument = getDocument;
+		this.getDocumentProcessingRequest = getDocumentProcessingRequest;
 		this.requestDocumentProcessing = requestDocumentProcessing;
 	}
 
@@ -48,13 +53,28 @@ class DocumentController {
 	}
 
 	@PostMapping("/{documentId}/processing")
-	ResponseEntity<Void> process(
+	ResponseEntity<DocumentProcessingAcceptedResponse> process(
 		@PathVariable UUID workspaceId,
 		@PathVariable UUID documentId,
 		@RequestBody ProcessDocumentRequest request) {
-		requestDocumentProcessing.execute(request.toCommand(workspaceId, documentId));
-		var location = URI.create("/api/v1/workspaces/%s/documents/%s"
-			.formatted(workspaceId, documentId));
-		return ResponseEntity.accepted().location(location).build();
+		var requestId = requestDocumentProcessing.execute(request.toCommand(workspaceId, documentId));
+		var location = processingLocation(workspaceId, documentId, requestId);
+		return ResponseEntity.accepted()
+			.location(location)
+			.body(DocumentProcessingAcceptedResponse.pending(requestId));
+	}
+
+	@GetMapping("/{documentId}/processing/{requestId}")
+	DocumentProcessingResponse getProcessingRequest(
+		@PathVariable UUID workspaceId,
+		@PathVariable UUID documentId,
+		@PathVariable UUID requestId) {
+		return DocumentProcessingResponse.from(getDocumentProcessingRequest.execute(
+			new GetDocumentProcessingRequestQuery(workspaceId, documentId, requestId)));
+	}
+
+	private static URI processingLocation(UUID workspaceId, UUID documentId, UUID requestId) {
+		return URI.create("/api/v1/workspaces/%s/documents/%s/processing/%s"
+			.formatted(workspaceId, documentId, requestId));
 	}
 }

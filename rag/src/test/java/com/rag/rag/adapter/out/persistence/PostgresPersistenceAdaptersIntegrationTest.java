@@ -10,11 +10,14 @@ import com.rag.rag.domain.document.DocumentSourceType;
 import com.rag.rag.domain.document.DocumentStatus;
 import com.rag.rag.domain.embedding.ChunkEmbedding;
 import com.rag.rag.domain.embedding.EmbeddingVector;
+import com.rag.rag.application.usecase.DocumentProcessingStatus;
 import com.rag.rag.application.usecase.ProcessDocumentCommand;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -178,7 +181,11 @@ class PostgresPersistenceAdaptersIntegrationTest extends PgVectorIntegrationTest
         UUID requestId = processingRequests.create(command);
 
         assertThat(readProcessingRequestStatus(requestId)).isEqualTo("PENDING");
-        assertThat(processingRequests.findCommandById(requestId)).contains(command);
+        assertThat(processingRequests.findById(workspaceId, documentId, requestId))
+                .get()
+                .extracting(state -> state.status())
+                .isEqualTo(DocumentProcessingStatus.PENDING);
+        assertThat(processingRequests.findById(UUID.randomUUID(), documentId, requestId)).isEmpty();
 
         List<ClaimedDocumentProcessingRequest> claimed =
                 processingRequests.claimPending(10, Duration.ofSeconds(30));
@@ -192,10 +199,26 @@ class PostgresPersistenceAdaptersIntegrationTest extends PgVectorIntegrationTest
         assertThat(readProcessingRequestStatus(requestId)).isEqualTo("PUBLISHED");
         assertThat(readTimestamp("published_at", requestId)).isNotNull();
 
+        var processingClaim = processingRequests.claimForProcessing(requestId, Duration.ofMinutes(30));
+
+        assertThat(processingClaim).get().matches(claim -> claim.acquired());
+        assertThat(processingClaim.orElseThrow().command()).isEqualTo(command);
+        assertThat(readProcessingRequestStatus(requestId)).isEqualTo("PROCESSING");
+        assertThat(processingRequests.claimForProcessing(requestId, Duration.ofMinutes(30)))
+                .get()
+                .matches(claim -> !claim.acquired())
+                .extracting(claim -> claim.status())
+                .isEqualTo(DocumentProcessingStatus.PROCESSING);
+
         processingRequests.markCompleted(requestId);
 
         assertThat(readProcessingRequestStatus(requestId)).isEqualTo("COMPLETED");
         assertThat(readTimestamp("completed_at", requestId)).isNotNull();
+        assertThat(processingRequests.claimForProcessing(requestId, Duration.ofMinutes(30)))
+                .get()
+                .matches(claim -> !claim.acquired())
+                .extracting(claim -> claim.status())
+                .isEqualTo(DocumentProcessingStatus.COMPLETED);
     }
 
     @Test
@@ -233,6 +256,98 @@ class PostgresPersistenceAdaptersIntegrationTest extends PgVectorIntegrationTest
                 requestId);
         assertThat(processingRequests.claimPending(1, Duration.ofSeconds(30)))
                 .containsExactly(new ClaimedDocumentProcessingRequest(requestId, 3));
+    }
+
+    @Test
+    void releasesFailedProcessingAndReclaimsExpiredProcessingLease() {
+        UUID workspaceId = UUID.randomUUID();
+        UUID documentId = insertDocument(
+                workspaceId,
+                "Architecture Notes",
+                "TEXT",
+                null,
+                "checksum-123",
+                "INGESTION_REQUESTED",
+                Map.of());
+        UUID requestId = processingRequests.create(new ProcessDocumentCommand(
+                workspaceId,
+                documentId,
+                "Retry processing content.",
+                256));
+
+        assertThat(processingRequests.claimForProcessing(requestId, Duration.ofMinutes(30)))
+                .get()
+                .matches(claim -> claim.acquired());
+        processingRequests.releaseForRetry(requestId, "embedding provider unavailable");
+
+        assertThat(readProcessingRequestStatus(requestId)).isEqualTo("PUBLISHED");
+        assertThat(readProcessingRequestError(requestId)).isEqualTo("embedding provider unavailable");
+        assertThat(processingRequests.claimForProcessing(requestId, Duration.ofMillis(1)))
+                .get()
+                .matches(claim -> claim.acquired());
+
+        jdbcTemplate.update(
+                "UPDATE document_processing_requests SET lease_until = now() - interval '1 second' WHERE id = ?",
+                requestId);
+
+        assertThat(processingRequests.claimPending(1, Duration.ofSeconds(30)))
+                .containsExactly(new ClaimedDocumentProcessingRequest(requestId, 1));
+
+        processingRequests.markPublished(requestId);
+        processingRequests.markFailed(requestId, "retry attempts exhausted");
+
+        assertThat(readProcessingRequestStatus(requestId)).isEqualTo("FAILED");
+        assertThat(readProcessingRequestError(requestId)).isEqualTo("retry attempts exhausted");
+        assertThat(readTimestamp("failed_at", requestId)).isNotNull();
+        assertThat(processingRequests.claimForProcessing(requestId, Duration.ofMinutes(30)))
+                .get()
+                .extracting(claim -> claim.status())
+                .isEqualTo(DocumentProcessingStatus.FAILED);
+    }
+
+    @Test
+    void grantsOnlyOneProcessingClaimAcrossConcurrentConsumers() throws Exception {
+        UUID workspaceId = UUID.randomUUID();
+        UUID documentId = insertDocument(
+                workspaceId,
+                "Concurrent Architecture Notes",
+                "TEXT",
+                null,
+                "checksum-concurrent",
+                "INGESTION_REQUESTED",
+                Map.of());
+        UUID requestId = processingRequests.create(new ProcessDocumentCommand(
+                workspaceId,
+                documentId,
+                "Concurrent processing content.",
+                256));
+        var start = new CountDownLatch(1);
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> {
+                start.await();
+                return new PostgresDocumentProcessingRequestAdapter(jdbcTemplate)
+                        .claimForProcessing(requestId, Duration.ofMinutes(30))
+                        .orElseThrow();
+            });
+            var second = executor.submit(() -> {
+                start.await();
+                return new PostgresDocumentProcessingRequestAdapter(jdbcTemplate)
+                        .claimForProcessing(requestId, Duration.ofMinutes(30))
+                        .orElseThrow();
+            });
+
+            start.countDown();
+            var claims = List.of(first.get(), second.get());
+
+            assertThat(claims).filteredOn(claim -> claim.acquired()).hasSize(1);
+            assertThat(claims).filteredOn(claim -> !claim.acquired()).hasSize(1);
+            assertThat(claims).allMatch(claim -> claim.status() == DocumentProcessingStatus.PROCESSING);
+
+            processingRequests.markFailed(requestId, "stale delivery failure");
+
+            assertThat(readProcessingRequestStatus(requestId)).isEqualTo("PROCESSING");
+        }
     }
 
     private UUID insertDocument(

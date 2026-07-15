@@ -15,6 +15,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.rag.rag.application.usecase.DocumentNotFoundException;
+import com.rag.rag.application.usecase.DocumentProcessingRequestNotFoundException;
+import com.rag.rag.application.usecase.DocumentProcessingStatus;
+import com.rag.rag.application.usecase.GetDocumentProcessingRequestQuery;
+import com.rag.rag.application.usecase.GetDocumentProcessingRequestResult;
+import com.rag.rag.application.usecase.GetDocumentProcessingRequestUseCase;
 import com.rag.rag.application.usecase.GetDocumentQuery;
 import com.rag.rag.application.usecase.GetDocumentResult;
 import com.rag.rag.application.usecase.GetDocumentUseCase;
@@ -25,6 +30,7 @@ import com.rag.rag.application.usecase.RegisterDocumentUseCase;
 import com.rag.rag.application.usecase.RequestDocumentProcessingUseCase;
 import com.rag.rag.domain.document.DocumentSourceType;
 import com.rag.rag.domain.document.DocumentStatus;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -51,6 +57,9 @@ class DocumentControllerTest {
 
 	@MockitoBean
 	private RequestDocumentProcessingUseCase requestDocumentProcessing;
+
+	@MockitoBean
+	private GetDocumentProcessingRequestUseCase getDocumentProcessingRequest;
 
 	@Test
 	void requiresAuthentication() throws Exception {
@@ -220,6 +229,8 @@ class DocumentControllerTest {
 	void acceptsDocumentProcessingRequest() throws Exception {
 		var workspaceId = UUID.randomUUID();
 		var documentId = UUID.randomUUID();
+		var requestId = UUID.randomUUID();
+		when(requestDocumentProcessing.execute(any(ProcessDocumentCommand.class))).thenReturn(requestId);
 
 		mockMvc.perform(post(
 				"/api/v1/workspaces/{workspaceId}/documents/{documentId}/processing",
@@ -231,8 +242,10 @@ class DocumentControllerTest {
 			.andExpect(status().isAccepted())
 			.andExpect(header().string(
 				"Location",
-				"/api/v1/workspaces/%s/documents/%s".formatted(workspaceId, documentId)))
-			.andExpect(content().string(""));
+				"/api/v1/workspaces/%s/documents/%s/processing/%s"
+					.formatted(workspaceId, documentId, requestId)))
+			.andExpect(jsonPath("$.requestId").value(requestId.toString()))
+			.andExpect(jsonPath("$.status").value("PENDING"));
 
 		var command = ArgumentCaptor.forClass(ProcessDocumentCommand.class);
 		verify(requestDocumentProcessing).execute(command.capture());
@@ -240,6 +253,67 @@ class DocumentControllerTest {
 		assertEquals(documentId, command.getValue().documentId());
 		assertEquals("Architecture content", command.getValue().content());
 		assertEquals(256, command.getValue().maxTokens());
+	}
+
+	@Test
+	void getsDocumentProcessingRequestStatus() throws Exception {
+		var workspaceId = UUID.randomUUID();
+		var documentId = UUID.randomUUID();
+		var requestId = UUID.randomUUID();
+		var createdAt = Instant.parse("2026-07-15T04:00:00Z");
+		when(getDocumentProcessingRequest.execute(any(GetDocumentProcessingRequestQuery.class)))
+			.thenReturn(new GetDocumentProcessingRequestResult(
+				requestId,
+				workspaceId,
+				documentId,
+				DocumentProcessingStatus.PROCESSING,
+				1,
+				2,
+				null,
+				createdAt,
+				createdAt.plusSeconds(10),
+				createdAt.plusSeconds(2),
+				null,
+				null));
+
+		mockMvc.perform(get(
+				"/api/v1/workspaces/{workspaceId}/documents/{documentId}/processing/{requestId}",
+				workspaceId,
+				documentId,
+				requestId)
+				.with(user("engineer")))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.requestId").value(requestId.toString()))
+			.andExpect(jsonPath("$.workspaceId").value(workspaceId.toString()))
+			.andExpect(jsonPath("$.documentId").value(documentId.toString()))
+			.andExpect(jsonPath("$.status").value("PROCESSING"))
+			.andExpect(jsonPath("$.terminal").value(false))
+			.andExpect(jsonPath("$.dispatchAttempts").value(1))
+			.andExpect(jsonPath("$.processingAttempts").value(2))
+			.andExpect(jsonPath("$.createdAt").value("2026-07-15T04:00:00Z"));
+
+		var query = ArgumentCaptor.forClass(GetDocumentProcessingRequestQuery.class);
+		verify(getDocumentProcessingRequest).execute(query.capture());
+		assertEquals(workspaceId, query.getValue().workspaceId());
+		assertEquals(documentId, query.getValue().documentId());
+		assertEquals(requestId, query.getValue().requestId());
+	}
+
+	@Test
+	void returnsNotFoundForUnknownProcessingRequest() throws Exception {
+		when(getDocumentProcessingRequest.execute(any(GetDocumentProcessingRequestQuery.class)))
+			.thenThrow(new DocumentProcessingRequestNotFoundException());
+
+		mockMvc.perform(get(
+				"/api/v1/workspaces/{workspaceId}/documents/{documentId}/processing/{requestId}",
+				UUID.randomUUID(),
+				UUID.randomUUID(),
+				UUID.randomUUID())
+				.with(user("engineer")))
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+			.andExpect(jsonPath("$.title").value("Document processing request not found"))
+			.andExpect(jsonPath("$.detail").value("document processing request not found"));
 	}
 
 	@Test

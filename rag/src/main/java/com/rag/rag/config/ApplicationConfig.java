@@ -8,11 +8,13 @@ import com.rag.rag.application.port.out.EmbeddingGeneratorPort;
 import com.rag.rag.application.service.ChunkingService;
 import com.rag.rag.application.service.PromptInjectionScanner;
 import com.rag.rag.application.usecase.GetDocumentUseCase;
+import com.rag.rag.application.usecase.GetDocumentProcessingRequestUseCase;
 import com.rag.rag.application.usecase.GetHealthStatusUseCase;
 import com.rag.rag.application.usecase.ProcessDocumentUseCase;
 import com.rag.rag.application.usecase.ProcessQueuedDocumentUseCase;
 import com.rag.rag.application.usecase.RegisterDocumentUseCase;
 import com.rag.rag.application.usecase.RequestDocumentProcessingUseCase;
+import java.time.Duration;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -54,6 +56,12 @@ class ApplicationConfig {
 	}
 
 	@Bean
+	GetDocumentProcessingRequestUseCase getDocumentProcessingRequestUseCase(
+		DocumentProcessingRequestPort processingRequests) {
+		return new GetDocumentProcessingRequestUseCase(processingRequests);
+	}
+
+	@Bean
 	RequestDocumentProcessingUseCase requestDocumentProcessingUseCase(
 		DocumentRepositoryPort documents,
 		DocumentProcessingRequestPort processingRequests) {
@@ -78,8 +86,9 @@ class ApplicationConfig {
 	@Bean
 	ProcessQueuedDocumentUseCase processQueuedDocumentUseCase(
 		DocumentProcessingRequestPort processingRequests,
-		ProcessDocumentUseCase processDocument) {
-		return new ProcessQueuedDocumentUseCase(processingRequests, processDocument);
+		ProcessDocumentUseCase processDocument,
+		@Value("${rag.document-processing.consumer.lease-duration:30m}") Duration leaseDuration) {
+		return new ProcessQueuedDocumentUseCase(processingRequests, processDocument, leaseDuration);
 	}
 
 }
