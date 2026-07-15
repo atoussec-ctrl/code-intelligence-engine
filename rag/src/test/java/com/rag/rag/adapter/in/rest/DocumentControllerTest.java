@@ -6,17 +6,23 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.rag.rag.application.usecase.DocumentNotFoundException;
+import com.rag.rag.application.usecase.GetDocumentQuery;
+import com.rag.rag.application.usecase.GetDocumentResult;
+import com.rag.rag.application.usecase.GetDocumentUseCase;
 import com.rag.rag.application.usecase.RegisterDocumentCommand;
 import com.rag.rag.application.usecase.RegisterDocumentResult;
 import com.rag.rag.application.usecase.RegisterDocumentUseCase;
 import com.rag.rag.domain.document.DocumentSourceType;
 import com.rag.rag.domain.document.DocumentStatus;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -36,6 +42,9 @@ class DocumentControllerTest {
 
 	@MockitoBean
 	private RegisterDocumentUseCase registerDocument;
+
+	@MockitoBean
+	private GetDocumentUseCase getDocument;
 
 	@Test
 	void requiresAuthentication() throws Exception {
@@ -121,6 +130,71 @@ class DocumentControllerTest {
 				.value("request body is malformed or contains unsupported values"));
 
 		verifyNoInteractions(registerDocument);
+	}
+
+	@Test
+	void requiresAuthenticationWhenGettingDocument() throws Exception {
+		mockMvc.perform(get(
+			"/api/v1/workspaces/{workspaceId}/documents/{documentId}",
+			UUID.randomUUID(),
+			UUID.randomUUID()))
+			.andExpect(status().isUnauthorized());
+
+		verifyNoInteractions(getDocument);
+	}
+
+	@Test
+	void getsDocumentForAuthenticatedUser() throws Exception {
+		var workspaceId = UUID.randomUUID();
+		var documentId = UUID.randomUUID();
+		when(getDocument.execute(any(GetDocumentQuery.class)))
+			.thenReturn(new GetDocumentResult(
+				documentId,
+				workspaceId,
+				"Architecture Notes",
+				DocumentSourceType.URL,
+				"https://example.com/docs",
+				"checksum-123",
+				DocumentStatus.READY,
+				Map.of("tag", "architecture")));
+
+		mockMvc.perform(get(
+				"/api/v1/workspaces/{workspaceId}/documents/{documentId}",
+				workspaceId,
+				documentId)
+				.with(user("engineer")))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.documentId").value(documentId.toString()))
+			.andExpect(jsonPath("$.workspaceId").value(workspaceId.toString()))
+			.andExpect(jsonPath("$.title").value("Architecture Notes"))
+			.andExpect(jsonPath("$.sourceType").value("URL"))
+			.andExpect(jsonPath("$.sourceUri").value("https://example.com/docs"))
+			.andExpect(jsonPath("$.checksum").value("checksum-123"))
+			.andExpect(jsonPath("$.status").value("READY"))
+			.andExpect(jsonPath("$.metadata.tag").value("architecture"));
+
+		var query = ArgumentCaptor.forClass(GetDocumentQuery.class);
+		verify(getDocument).execute(query.capture());
+		assertEquals(workspaceId, query.getValue().workspaceId());
+		assertEquals(documentId, query.getValue().documentId());
+	}
+
+	@Test
+	void returnsProblemDetailWhenDocumentDoesNotExist() throws Exception {
+		var workspaceId = UUID.randomUUID();
+		var documentId = UUID.randomUUID();
+		when(getDocument.execute(any(GetDocumentQuery.class)))
+			.thenThrow(new DocumentNotFoundException());
+
+		mockMvc.perform(get(
+				"/api/v1/workspaces/{workspaceId}/documents/{documentId}",
+				workspaceId,
+				documentId)
+				.with(user("engineer")))
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+			.andExpect(jsonPath("$.title").value("Document not found"))
+			.andExpect(jsonPath("$.detail").value("document not found"));
 	}
 
 	private String validRequest() {

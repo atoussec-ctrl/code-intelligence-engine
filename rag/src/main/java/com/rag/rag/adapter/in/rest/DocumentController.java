@@ -1,9 +1,12 @@
 package com.rag.rag.adapter.in.rest;
 
+import com.rag.rag.application.usecase.GetDocumentQuery;
+import com.rag.rag.application.usecase.GetDocumentUseCase;
 import com.rag.rag.application.usecase.RegisterDocumentUseCase;
 import java.net.URI;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,9 +18,11 @@ import org.springframework.web.bind.annotation.RestController;
 class DocumentController {
 
 	private final RegisterDocumentUseCase registerDocument;
+	private final GetDocumentUseCase getDocument;
 
-	DocumentController(RegisterDocumentUseCase registerDocument) {
+	DocumentController(RegisterDocumentUseCase registerDocument, GetDocumentUseCase getDocument) {
 		this.registerDocument = registerDocument;
+		this.getDocument = getDocument;
 	}
 
 	@PostMapping
@@ -29,5 +34,10 @@ class DocumentController {
 			.formatted(workspaceId, result.documentId()));
 		return ResponseEntity.created(location)
 			.body(RegisterDocumentResponse.from(result));
+	}
+
+	@GetMapping("/{documentId}")
+	DocumentResponse get(@PathVariable UUID workspaceId, @PathVariable UUID documentId) {
+		return DocumentResponse.from(getDocument.execute(new GetDocumentQuery(workspaceId, documentId)));
 	}
 }
