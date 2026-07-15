@@ -2,6 +2,7 @@ package com.rag.rag.adapter.in.rest;
 
 import com.rag.rag.application.usecase.GetDocumentQuery;
 import com.rag.rag.application.usecase.GetDocumentUseCase;
+import com.rag.rag.application.usecase.RequestDocumentProcessingUseCase;
 import com.rag.rag.application.usecase.RegisterDocumentUseCase;
 import java.net.URI;
 import java.util.UUID;
@@ -19,10 +20,15 @@ class DocumentController {
 
 	private final RegisterDocumentUseCase registerDocument;
 	private final GetDocumentUseCase getDocument;
+	private final RequestDocumentProcessingUseCase requestDocumentProcessing;
 
-	DocumentController(RegisterDocumentUseCase registerDocument, GetDocumentUseCase getDocument) {
+	DocumentController(
+		RegisterDocumentUseCase registerDocument,
+		GetDocumentUseCase getDocument,
+		RequestDocumentProcessingUseCase requestDocumentProcessing) {
 		this.registerDocument = registerDocument;
 		this.getDocument = getDocument;
+		this.requestDocumentProcessing = requestDocumentProcessing;
 	}
 
 	@PostMapping
@@ -39,5 +45,16 @@ class DocumentController {
 	@GetMapping("/{documentId}")
 	DocumentResponse get(@PathVariable UUID workspaceId, @PathVariable UUID documentId) {
 		return DocumentResponse.from(getDocument.execute(new GetDocumentQuery(workspaceId, documentId)));
+	}
+
+	@PostMapping("/{documentId}/processing")
+	ResponseEntity<Void> process(
+		@PathVariable UUID workspaceId,
+		@PathVariable UUID documentId,
+		@RequestBody ProcessDocumentRequest request) {
+		requestDocumentProcessing.execute(request.toCommand(workspaceId, documentId));
+		var location = URI.create("/api/v1/workspaces/%s/documents/%s"
+			.formatted(workspaceId, documentId));
+		return ResponseEntity.accepted().location(location).build();
 	}
 }

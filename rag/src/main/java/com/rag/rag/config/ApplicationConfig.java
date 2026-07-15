@@ -3,6 +3,7 @@ package com.rag.rag.config;
 import com.rag.rag.adapter.out.embedding.SpringAiEmbeddingGeneratorAdapter;
 import com.rag.rag.application.port.out.ChunkEmbeddingRepositoryPort;
 import com.rag.rag.application.port.out.DocumentRepositoryPort;
+import com.rag.rag.application.port.out.DocumentProcessingQueuePort;
 import com.rag.rag.application.port.out.EmbeddingGeneratorPort;
 import com.rag.rag.application.service.ChunkingService;
 import com.rag.rag.application.service.PromptInjectionScanner;
@@ -10,6 +11,7 @@ import com.rag.rag.application.usecase.GetDocumentUseCase;
 import com.rag.rag.application.usecase.GetHealthStatusUseCase;
 import com.rag.rag.application.usecase.ProcessDocumentUseCase;
 import com.rag.rag.application.usecase.RegisterDocumentUseCase;
+import com.rag.rag.application.usecase.RequestDocumentProcessingUseCase;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -48,6 +50,13 @@ class ApplicationConfig {
 	@Bean
 	GetDocumentUseCase getDocumentUseCase(DocumentRepositoryPort documents) {
 		return new GetDocumentUseCase(documents);
+	}
+
+	@Bean
+	RequestDocumentProcessingUseCase requestDocumentProcessingUseCase(
+		DocumentRepositoryPort documents,
+		DocumentProcessingQueuePort processingQueue) {
+		return new RequestDocumentProcessingUseCase(documents, processingQueue);
 	}
 
 	@Bean

@@ -2,6 +2,7 @@ package com.rag.rag.adapter.in.rest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -14,12 +15,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.rag.rag.application.usecase.DocumentNotFoundException;
+import com.rag.rag.application.usecase.DocumentProcessingUnavailableException;
 import com.rag.rag.application.usecase.GetDocumentQuery;
 import com.rag.rag.application.usecase.GetDocumentResult;
 import com.rag.rag.application.usecase.GetDocumentUseCase;
+import com.rag.rag.application.usecase.ProcessDocumentCommand;
 import com.rag.rag.application.usecase.RegisterDocumentCommand;
 import com.rag.rag.application.usecase.RegisterDocumentResult;
 import com.rag.rag.application.usecase.RegisterDocumentUseCase;
+import com.rag.rag.application.usecase.RequestDocumentProcessingUseCase;
 import com.rag.rag.domain.document.DocumentSourceType;
 import com.rag.rag.domain.document.DocumentStatus;
 import java.util.Map;
@@ -45,6 +49,9 @@ class DocumentControllerTest {
 
 	@MockitoBean
 	private GetDocumentUseCase getDocument;
+
+	@MockitoBean
+	private RequestDocumentProcessingUseCase requestDocumentProcessing;
 
 	@Test
 	void requiresAuthentication() throws Exception {
@@ -197,6 +204,106 @@ class DocumentControllerTest {
 			.andExpect(jsonPath("$.detail").value("document not found"));
 	}
 
+	@Test
+	void requiresAuthenticationWhenRequestingDocumentProcessing() throws Exception {
+		mockMvc.perform(post(
+				"/api/v1/workspaces/{workspaceId}/documents/{documentId}/processing",
+				UUID.randomUUID(),
+				UUID.randomUUID())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(validProcessingRequest()))
+			.andExpect(status().isUnauthorized());
+
+		verifyNoInteractions(requestDocumentProcessing);
+	}
+
+	@Test
+	void acceptsDocumentProcessingRequest() throws Exception {
+		var workspaceId = UUID.randomUUID();
+		var documentId = UUID.randomUUID();
+
+		mockMvc.perform(post(
+				"/api/v1/workspaces/{workspaceId}/documents/{documentId}/processing",
+				workspaceId,
+				documentId)
+				.with(user("engineer"))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(validProcessingRequest()))
+			.andExpect(status().isAccepted())
+			.andExpect(header().string(
+				"Location",
+				"/api/v1/workspaces/%s/documents/%s".formatted(workspaceId, documentId)))
+			.andExpect(content().string(""));
+
+		var command = ArgumentCaptor.forClass(ProcessDocumentCommand.class);
+		verify(requestDocumentProcessing).execute(command.capture());
+		assertEquals(workspaceId, command.getValue().workspaceId());
+		assertEquals(documentId, command.getValue().documentId());
+		assertEquals("Architecture content", command.getValue().content());
+		assertEquals(256, command.getValue().maxTokens());
+	}
+
+	@Test
+	void returnsProblemDetailForInvalidProcessingRequest() throws Exception {
+		mockMvc.perform(post(
+				"/api/v1/workspaces/{workspaceId}/documents/{documentId}/processing",
+				UUID.randomUUID(),
+				UUID.randomUUID())
+				.with(user("engineer"))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "content": " ",
+					  "maxTokens": 0
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+			.andExpect(jsonPath("$.detail").value("content is required"));
+
+		verifyNoInteractions(requestDocumentProcessing);
+	}
+
+	@Test
+	void returnsNotFoundWhenRequestingProcessingForUnknownDocument() throws Exception {
+		var workspaceId = UUID.randomUUID();
+		var documentId = UUID.randomUUID();
+		doThrow(new DocumentNotFoundException())
+			.when(requestDocumentProcessing)
+			.execute(any(ProcessDocumentCommand.class));
+
+		mockMvc.perform(post(
+				"/api/v1/workspaces/{workspaceId}/documents/{documentId}/processing",
+				workspaceId,
+				documentId)
+				.with(user("engineer"))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(validProcessingRequest()))
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+			.andExpect(jsonPath("$.detail").value("document not found"));
+	}
+
+	@Test
+	void returnsServiceUnavailableWhenProcessingQueueCannotBeReached() throws Exception {
+		var cause = new IllegalStateException("broker unavailable");
+		doThrow(new DocumentProcessingUnavailableException(cause))
+			.when(requestDocumentProcessing)
+			.execute(any(ProcessDocumentCommand.class));
+
+		mockMvc.perform(post(
+				"/api/v1/workspaces/{workspaceId}/documents/{documentId}/processing",
+				UUID.randomUUID(),
+				UUID.randomUUID())
+				.with(user("engineer"))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(validProcessingRequest()))
+			.andExpect(status().isServiceUnavailable())
+			.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+			.andExpect(jsonPath("$.title").value("Document processing unavailable"))
+			.andExpect(jsonPath("$.detail").value("document processing is temporarily unavailable"));
+	}
+
 	private String validRequest() {
 		return """
 			{
@@ -207,6 +314,15 @@ class DocumentControllerTest {
 			  "metadata": {
 			    "tag": "architecture"
 			  }
+			}
+			""";
+	}
+
+	private String validProcessingRequest() {
+		return """
+			{
+			  "content": "Architecture content",
+			  "maxTokens": 256
 			}
 			""";
 	}
