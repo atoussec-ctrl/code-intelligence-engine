@@ -14,6 +14,7 @@ import com.rag.rag.application.usecase.ProcessDocumentUseCase;
 import com.rag.rag.application.usecase.ProcessQueuedDocumentUseCase;
 import com.rag.rag.application.usecase.RegisterDocumentUseCase;
 import com.rag.rag.application.usecase.RequestDocumentProcessingUseCase;
+import com.rag.rag.application.usecase.RetryDocumentProcessingRequestUseCase;
 import java.time.Duration;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
@@ -66,6 +67,12 @@ class ApplicationConfig {
 		DocumentRepositoryPort documents,
 		DocumentProcessingRequestPort processingRequests) {
 		return new RequestDocumentProcessingUseCase(documents, processingRequests);
+	}
+
+	@Bean
+	RetryDocumentProcessingRequestUseCase retryDocumentProcessingRequestUseCase(
+		DocumentProcessingRequestPort processingRequests) {
+		return new RetryDocumentProcessingRequestUseCase(processingRequests);
 	}
 
 	@Bean

@@ -16,6 +16,11 @@ public interface DocumentProcessingRequestPort {
 		UUID documentId,
 		UUID requestId);
 
+	DocumentProcessingRetryOutcome retryFailed(
+		UUID workspaceId,
+		UUID documentId,
+		UUID requestId);
+
 	void markCompleted(UUID requestId);
 
 	void releaseForRetry(UUID requestId, String error);

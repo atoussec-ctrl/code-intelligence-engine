@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.rag.rag.application.usecase.DocumentNotFoundException;
 import com.rag.rag.application.usecase.DocumentProcessingRequestNotFoundException;
+import com.rag.rag.application.usecase.DocumentProcessingRequestNotRetryableException;
 import com.rag.rag.application.usecase.DocumentProcessingStatus;
 import com.rag.rag.application.usecase.GetDocumentProcessingRequestQuery;
 import com.rag.rag.application.usecase.GetDocumentProcessingRequestResult;
@@ -28,6 +29,8 @@ import com.rag.rag.application.usecase.RegisterDocumentCommand;
 import com.rag.rag.application.usecase.RegisterDocumentResult;
 import com.rag.rag.application.usecase.RegisterDocumentUseCase;
 import com.rag.rag.application.usecase.RequestDocumentProcessingUseCase;
+import com.rag.rag.application.usecase.RetryDocumentProcessingRequestCommand;
+import com.rag.rag.application.usecase.RetryDocumentProcessingRequestUseCase;
 import com.rag.rag.domain.document.DocumentSourceType;
 import com.rag.rag.domain.document.DocumentStatus;
 import java.time.Instant;
@@ -60,6 +63,9 @@ class DocumentControllerTest {
 
 	@MockitoBean
 	private GetDocumentProcessingRequestUseCase getDocumentProcessingRequest;
+
+	@MockitoBean
+	private RetryDocumentProcessingRequestUseCase retryDocumentProcessingRequest;
 
 	@Test
 	void requiresAuthentication() throws Exception {
@@ -314,6 +320,65 @@ class DocumentControllerTest {
 			.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
 			.andExpect(jsonPath("$.title").value("Document processing request not found"))
 			.andExpect(jsonPath("$.detail").value("document processing request not found"));
+	}
+
+	@Test
+	void retriesFailedDocumentProcessingRequest() throws Exception {
+		var workspaceId = UUID.randomUUID();
+		var documentId = UUID.randomUUID();
+		var requestId = UUID.randomUUID();
+
+		mockMvc.perform(post(
+				"/api/v1/workspaces/{workspaceId}/documents/{documentId}/processing/{requestId}/retry",
+				workspaceId,
+				documentId,
+				requestId)
+				.with(user("engineer")))
+			.andExpect(status().isAccepted())
+			.andExpect(header().string(
+				"Location",
+				"/api/v1/workspaces/%s/documents/%s/processing/%s"
+					.formatted(workspaceId, documentId, requestId)))
+			.andExpect(jsonPath("$.requestId").value(requestId.toString()))
+			.andExpect(jsonPath("$.status").value("PENDING"));
+
+		var command = ArgumentCaptor.forClass(RetryDocumentProcessingRequestCommand.class);
+		verify(retryDocumentProcessingRequest).execute(command.capture());
+		assertEquals(workspaceId, command.getValue().workspaceId());
+		assertEquals(documentId, command.getValue().documentId());
+		assertEquals(requestId, command.getValue().requestId());
+	}
+
+	@Test
+	void returnsConflictWhenProcessingRequestCannotBeRetried() throws Exception {
+		doThrow(new DocumentProcessingRequestNotRetryableException())
+			.when(retryDocumentProcessingRequest)
+			.execute(any(RetryDocumentProcessingRequestCommand.class));
+
+		mockMvc.perform(post(
+				"/api/v1/workspaces/{workspaceId}/documents/{documentId}/processing/{requestId}/retry",
+				UUID.randomUUID(),
+				UUID.randomUUID(),
+				UUID.randomUUID())
+				.with(user("engineer")))
+			.andExpect(status().isConflict())
+			.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+			.andExpect(jsonPath("$.title")
+				.value("Document processing request is not retryable"))
+			.andExpect(jsonPath("$.detail")
+				.value("only failed document processing requests can be retried"));
+	}
+
+	@Test
+	void requiresAuthenticationWhenRetryingDocumentProcessingRequest() throws Exception {
+		mockMvc.perform(post(
+			"/api/v1/workspaces/{workspaceId}/documents/{documentId}/processing/{requestId}/retry",
+			UUID.randomUUID(),
+			UUID.randomUUID(),
+			UUID.randomUUID()))
+			.andExpect(status().isUnauthorized());
+
+		verifyNoInteractions(retryDocumentProcessingRequest);
 	}
 
 	@Test

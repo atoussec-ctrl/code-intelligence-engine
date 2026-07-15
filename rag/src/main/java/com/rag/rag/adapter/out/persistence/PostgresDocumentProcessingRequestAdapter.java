@@ -3,6 +3,7 @@ package com.rag.rag.adapter.out.persistence;
 import com.rag.rag.application.port.out.DocumentProcessingClaim;
 import com.rag.rag.application.port.out.DocumentProcessingRequestPort;
 import com.rag.rag.application.port.out.DocumentProcessingRequestState;
+import com.rag.rag.application.port.out.DocumentProcessingRetryOutcome;
 import com.rag.rag.application.usecase.DocumentProcessingStatus;
 import com.rag.rag.application.usecase.ProcessDocumentCommand;
 import java.time.Duration;
@@ -107,12 +108,49 @@ public class PostgresDocumentProcessingRequestAdapter implements DocumentProcess
 	}
 
 	@Override
+	public DocumentProcessingRetryOutcome retryFailed(
+		UUID workspaceId,
+		UUID documentId,
+		UUID requestId) {
+		Objects.requireNonNull(workspaceId, "workspace id is required");
+		Objects.requireNonNull(documentId, "document id is required");
+		Objects.requireNonNull(requestId, "request id is required");
+		return jdbcTemplate.queryForObject(
+			"""
+			WITH retried AS (
+				UPDATE document_processing_requests
+				SET status = 'PENDING', available_at = now(), lease_until = NULL,
+					last_error = NULL, published_at = NULL, completed_at = NULL,
+					failed_at = NULL, updated_at = now()
+				WHERE id = ? AND workspace_id = ? AND document_id = ? AND status = 'FAILED'
+				RETURNING id
+			)
+			SELECT CASE
+				WHEN EXISTS (SELECT 1 FROM retried) THEN 'RETRIED'
+				WHEN EXISTS (
+					SELECT 1 FROM document_processing_requests
+					WHERE id = ? AND workspace_id = ? AND document_id = ?
+				) THEN 'NOT_FAILED'
+				ELSE 'NOT_FOUND'
+			END AS outcome
+			""",
+			(resultSet, rowNumber) -> DocumentProcessingRetryOutcome.valueOf(
+				resultSet.getString("outcome")),
+			requestId,
+			workspaceId,
+			documentId,
+			requestId,
+			workspaceId,
+			documentId);
+	}
+
+	@Override
 	public void markCompleted(UUID requestId) {
 		Objects.requireNonNull(requestId, "request id is required");
 		jdbcTemplate.update(
 			"""
 			UPDATE document_processing_requests
-			SET status = 'COMPLETED', completed_at = now(), lease_until = NULL,
+			SET status = 'COMPLETED', content = NULL, completed_at = now(), lease_until = NULL,
 				last_error = NULL, updated_at = now()
 			WHERE id = ? AND status = 'PROCESSING'
 			""",

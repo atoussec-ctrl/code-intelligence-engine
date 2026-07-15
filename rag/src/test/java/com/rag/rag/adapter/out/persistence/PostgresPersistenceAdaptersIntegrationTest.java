@@ -3,6 +3,9 @@ package com.rag.rag.adapter.out.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rag.rag.application.port.out.DocumentProcessingRetryOutcome;
+import com.rag.rag.application.usecase.DocumentProcessingStatus;
+import com.rag.rag.application.usecase.ProcessDocumentCommand;
 import com.rag.rag.domain.document.Chunk;
 import com.rag.rag.domain.document.Document;
 import com.rag.rag.domain.document.DocumentSource;
@@ -10,8 +13,6 @@ import com.rag.rag.domain.document.DocumentSourceType;
 import com.rag.rag.domain.document.DocumentStatus;
 import com.rag.rag.domain.embedding.ChunkEmbedding;
 import com.rag.rag.domain.embedding.EmbeddingVector;
-import com.rag.rag.application.usecase.DocumentProcessingStatus;
-import com.rag.rag.application.usecase.ProcessDocumentCommand;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -214,6 +215,7 @@ class PostgresPersistenceAdaptersIntegrationTest extends PgVectorIntegrationTest
 
         assertThat(readProcessingRequestStatus(requestId)).isEqualTo("COMPLETED");
         assertThat(readTimestamp("completed_at", requestId)).isNotNull();
+        assertThat(readProcessingRequestContent(requestId)).isNull();
         assertThat(processingRequests.claimForProcessing(requestId, Duration.ofMinutes(30)))
                 .get()
                 .matches(claim -> !claim.acquired())
@@ -299,10 +301,21 @@ class PostgresPersistenceAdaptersIntegrationTest extends PgVectorIntegrationTest
         assertThat(readProcessingRequestStatus(requestId)).isEqualTo("FAILED");
         assertThat(readProcessingRequestError(requestId)).isEqualTo("retry attempts exhausted");
         assertThat(readTimestamp("failed_at", requestId)).isNotNull();
+        assertThat(readProcessingRequestContent(requestId)).isEqualTo("Retry processing content.");
         assertThat(processingRequests.claimForProcessing(requestId, Duration.ofMinutes(30)))
                 .get()
                 .extracting(claim -> claim.status())
                 .isEqualTo(DocumentProcessingStatus.FAILED);
+
+        assertThat(processingRequests.retryFailed(UUID.randomUUID(), documentId, requestId))
+                .isEqualTo(DocumentProcessingRetryOutcome.NOT_FOUND);
+        assertThat(processingRequests.retryFailed(workspaceId, documentId, requestId))
+                .isEqualTo(DocumentProcessingRetryOutcome.RETRIED);
+        assertThat(readProcessingRequestStatus(requestId)).isEqualTo("PENDING");
+        assertThat(readProcessingRequestError(requestId)).isNull();
+        assertThat(readTimestamp("failed_at", requestId)).isNull();
+        assertThat(processingRequests.retryFailed(workspaceId, documentId, requestId))
+                .isEqualTo(DocumentProcessingRetryOutcome.NOT_FAILED);
     }
 
     @Test
@@ -348,6 +361,47 @@ class PostgresPersistenceAdaptersIntegrationTest extends PgVectorIntegrationTest
 
             assertThat(readProcessingRequestStatus(requestId)).isEqualTo("PROCESSING");
         }
+    }
+
+    @Test
+    void retriesFailedRequestOnlyOnceAcrossConcurrentCallers() throws Exception {
+        UUID workspaceId = UUID.randomUUID();
+        UUID documentId = insertDocument(
+                workspaceId,
+                "Concurrent Retry Notes",
+                "TEXT",
+                null,
+                "checksum-concurrent-retry",
+                "INGESTION_REQUESTED",
+                Map.of());
+        UUID requestId = processingRequests.create(new ProcessDocumentCommand(
+                workspaceId,
+                documentId,
+                "Concurrent retry content.",
+                256));
+        processingRequests.markFailed(requestId, "provider unavailable");
+        var start = new CountDownLatch(1);
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> {
+                start.await();
+                return new PostgresDocumentProcessingRequestAdapter(jdbcTemplate)
+                        .retryFailed(workspaceId, documentId, requestId);
+            });
+            var second = executor.submit(() -> {
+                start.await();
+                return new PostgresDocumentProcessingRequestAdapter(jdbcTemplate)
+                        .retryFailed(workspaceId, documentId, requestId);
+            });
+
+            start.countDown();
+
+            assertThat(List.of(first.get(), second.get())).containsExactlyInAnyOrder(
+                    DocumentProcessingRetryOutcome.RETRIED,
+                    DocumentProcessingRetryOutcome.NOT_FAILED);
+        }
+        assertThat(readProcessingRequestStatus(requestId)).isEqualTo("PENDING");
+        assertThat(readProcessingRequestContent(requestId)).isEqualTo("Concurrent retry content.");
     }
 
     private UUID insertDocument(
@@ -432,6 +486,13 @@ class PostgresPersistenceAdaptersIntegrationTest extends PgVectorIntegrationTest
     private String readProcessingRequestError(UUID requestId) {
         return jdbcTemplate.queryForObject(
                 "SELECT last_error FROM document_processing_requests WHERE id = ?",
+                String.class,
+                requestId);
+    }
+
+    private String readProcessingRequestContent(UUID requestId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT content FROM document_processing_requests WHERE id = ?",
                 String.class,
                 requestId);
     }

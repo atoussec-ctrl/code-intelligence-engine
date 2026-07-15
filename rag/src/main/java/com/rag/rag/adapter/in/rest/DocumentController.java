@@ -5,6 +5,8 @@ import com.rag.rag.application.usecase.GetDocumentProcessingRequestQuery;
 import com.rag.rag.application.usecase.GetDocumentProcessingRequestUseCase;
 import com.rag.rag.application.usecase.GetDocumentUseCase;
 import com.rag.rag.application.usecase.RequestDocumentProcessingUseCase;
+import com.rag.rag.application.usecase.RetryDocumentProcessingRequestCommand;
+import com.rag.rag.application.usecase.RetryDocumentProcessingRequestUseCase;
 import com.rag.rag.application.usecase.RegisterDocumentUseCase;
 import java.net.URI;
 import java.util.UUID;
@@ -24,16 +26,19 @@ class DocumentController {
 	private final GetDocumentUseCase getDocument;
 	private final GetDocumentProcessingRequestUseCase getDocumentProcessingRequest;
 	private final RequestDocumentProcessingUseCase requestDocumentProcessing;
+	private final RetryDocumentProcessingRequestUseCase retryDocumentProcessingRequest;
 
 	DocumentController(
 		RegisterDocumentUseCase registerDocument,
 		GetDocumentUseCase getDocument,
 		GetDocumentProcessingRequestUseCase getDocumentProcessingRequest,
-		RequestDocumentProcessingUseCase requestDocumentProcessing) {
+		RequestDocumentProcessingUseCase requestDocumentProcessing,
+		RetryDocumentProcessingRequestUseCase retryDocumentProcessingRequest) {
 		this.registerDocument = registerDocument;
 		this.getDocument = getDocument;
 		this.getDocumentProcessingRequest = getDocumentProcessingRequest;
 		this.requestDocumentProcessing = requestDocumentProcessing;
+		this.retryDocumentProcessingRequest = retryDocumentProcessingRequest;
 	}
 
 	@PostMapping
@@ -71,6 +76,18 @@ class DocumentController {
 		@PathVariable UUID requestId) {
 		return DocumentProcessingResponse.from(getDocumentProcessingRequest.execute(
 			new GetDocumentProcessingRequestQuery(workspaceId, documentId, requestId)));
+	}
+
+	@PostMapping("/{documentId}/processing/{requestId}/retry")
+	ResponseEntity<DocumentProcessingAcceptedResponse> retryProcessingRequest(
+		@PathVariable UUID workspaceId,
+		@PathVariable UUID documentId,
+		@PathVariable UUID requestId) {
+		retryDocumentProcessingRequest.execute(
+			new RetryDocumentProcessingRequestCommand(workspaceId, documentId, requestId));
+		return ResponseEntity.accepted()
+			.location(processingLocation(workspaceId, documentId, requestId))
+			.body(DocumentProcessingAcceptedResponse.pending(requestId));
 	}
 
 	private static URI processingLocation(UUID workspaceId, UUID documentId, UUID requestId) {

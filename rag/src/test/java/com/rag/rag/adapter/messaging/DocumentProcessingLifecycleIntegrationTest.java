@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.rag.rag.adapter.out.messaging.RabbitDocumentProcessingPublisher;
 import com.rag.rag.application.port.out.DocumentProcessingRequestPort;
+import com.rag.rag.application.port.out.DocumentProcessingRetryOutcome;
 import com.rag.rag.application.usecase.DocumentProcessingStatus;
 import com.rag.rag.application.usecase.ProcessDocumentCommand;
 import com.rag.rag.application.usecase.ProcessDocumentResult;
@@ -125,6 +126,35 @@ class DocumentProcessingLifecycleIntegrationTest {
 			.isEqualTo(new DocumentProcessingMessage(requestId)));
 	}
 
+	@Test
+	void replaysFailedRequestAndDiscardsContentAfterSuccess() {
+		var command = createProcessingRequest("Content retained for replay.");
+		var requestId = requestId(command);
+		when(processDocument.execute(command))
+			.thenThrow(new IllegalStateException("embedding provider unavailable"))
+			.thenThrow(new IllegalStateException("embedding provider unavailable"))
+			.thenThrow(new IllegalStateException("embedding provider unavailable"))
+			.thenReturn(new ProcessDocumentResult(command.documentId(), 1));
+
+		publisher.publish(requestId);
+
+		await().atMost(Duration.ofSeconds(10))
+			.untilAsserted(() -> assertThat(status(requestId)).isEqualTo(DocumentProcessingStatus.FAILED));
+		assertThat(content(requestId)).isEqualTo(command.content());
+		assertThat(processingRequests.retryFailed(
+			command.workspaceId(),
+			command.documentId(),
+			requestId)).isEqualTo(DocumentProcessingRetryOutcome.RETRIED);
+
+		publisher.publish(requestId);
+
+		await().atMost(Duration.ofSeconds(10))
+			.untilAsserted(() -> assertThat(status(requestId)).isEqualTo(DocumentProcessingStatus.COMPLETED));
+		verify(processDocument, after(Duration.ofSeconds(1).toMillis()).times(4)).execute(command);
+		assertThat(processingAttempts(requestId)).isEqualTo(4);
+		assertThat(content(requestId)).isNull();
+	}
+
 	private ProcessDocumentCommand createProcessingRequest(String content) {
 		var workspaceId = UUID.randomUUID();
 		var documentId = UUID.randomUUID();
@@ -161,6 +191,13 @@ class DocumentProcessingLifecycleIntegrationTest {
 	private String lastError(UUID requestId) {
 		return jdbcTemplate.queryForObject(
 			"SELECT last_error FROM document_processing_requests WHERE id = ?",
+			String.class,
+			requestId);
+	}
+
+	private String content(UUID requestId) {
+		return jdbcTemplate.queryForObject(
+			"SELECT content FROM document_processing_requests WHERE id = ?",
 			String.class,
 			requestId);
 	}
